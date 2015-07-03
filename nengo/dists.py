@@ -11,7 +11,6 @@ class Distribution(object):
     The only thing that a probabilities distribution need to define is a
     ``sample`` function. This base class ensures that all distributions
     accept the same arguments for the sample function.
-
     """
 
     def sample(self, n, d=None, rng=np.random):
@@ -245,6 +244,7 @@ class SqrtBeta(Distribution):
     --------
     SubvectorLength
     """
+
     def __init__(self, n, m=1):
         super(SqrtBeta, self).__init__()
         self.n = n
@@ -294,6 +294,25 @@ class SqrtBeta(Distribution):
             sq_x < 1., betainc(self.m / 2.0, self.n / 2.0, sq_x),
             np.ones_like(x))
 
+    def invcdf(self, y):
+        """Inverse cumulative distribution function.
+
+        Requires Scipy.
+
+        Parameters
+        ----------
+        y : ndarray
+            Cumulative probabilities in [0, 1].
+
+        Returns
+        -------
+        ndarray
+            Evaluation points `x` in [0, 1] such that `P(X <= x) = y`.
+        """
+        from scipy.special import betaincinv
+        sq_x = betaincinv(self.m / 2.0, self.n / 2.0, y)
+        return np.sqrt(sq_x)
+
 
 class SubvectorLength(SqrtBeta):
     """Distribution of the length of a subvectors of a unit vector.
@@ -309,9 +328,50 @@ class SubvectorLength(SqrtBeta):
     --------
     SqrtBeta
     """
+
     def __init__(self, dimensions, subdimensions=1):
         super(SubvectorLength, self).__init__(
             dimensions - subdimensions, subdimensions)
+
+
+class CosineSimilarity(SubvectorLength):
+    """Distribution of dot products between random unit vectors.
+
+    This is equivalent to the distribution of a single coefficient in a unit
+    vector (i.e. a single dimension of `UniformHypersphere(surface=True)`),
+    which can be obtained from `SubvectorLength` by symmetry.
+
+    This can be used to calculate an intercept `c = invcdf(1 - p)` such that
+    `dot(u, v) >= c` with probability `p`, for random unit vectors `u` and `v`.
+    In other words, a neuron with intercept `invcdf(1 - p)` will fire with
+    probability `p` for a random unit length input.
+
+    Parameters
+    ----------
+    dimensions: int
+        Dimensionality of the complete unit vector.
+
+    See also
+    --------
+    SqrtBeta
+    """
+
+    def __init__(self, dimensions):
+        super(CosineSimilarity, self).__init__(dimensions)
+
+    def sample(self, num, rng=np.random):
+        sign = Choice((1, -1)).sample(num, rng=rng)
+        return sign * super(CosineSimilarity, self).sample(num, rng=rng)
+
+    def pdf(self, x):
+        return super(CosineSimilarity, self).pdf(x) / 2.0
+
+    def cdf(self, x):
+        return (super(CosineSimilarity, self).cdf(x) * np.sign(x) + 1) / 2.0
+
+    def invcdf(self, y):
+        x = super(CosineSimilarity, self).invcdf(abs(y*2 - 1))
+        return np.where(y > 0.5, x, -x)
 
 
 class DistributionParam(Parameter):
