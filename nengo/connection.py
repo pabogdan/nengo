@@ -6,6 +6,7 @@ import numpy as np
 from nengo.base import NengoObject, NengoObjectParam, ObjView
 from nengo.dists import DistOrArrayParam
 from nengo.ensemble import Ensemble, Neurons
+from nengo.exceptions import ValidationError
 from nengo.learning_rules import LearningRuleType, LearningRuleTypeParam
 from nengo.node import Node
 from nengo.params import (
@@ -33,18 +34,24 @@ class ConnectionLearningRuleTypeParam(LearningRuleTypeParam):
             rule_type = 'transform'
 
         if rule_type not in rule.modifies:
-            raise ValueError("Learning rule '%s' cannot be applied to "
-                             "a %s-based connection." % (rule, rule_type))
+            raise ValidationError(
+                conn.__class__, self.name,
+                "Learning rule '%s' cannot be applied to a %s-based "
+                "connection." % (rule, rule_type))
 
         if not isinstance(conn.pre_obj, (Ensemble, Neurons)):
-            raise ValueError("'pre' must be of type 'Ensemble' or 'Neurons' "
-                             "for learning rule '%s' (got type '%s')" % (
-                                 rule, conn.pre_obj.__class__.__name__))
+            raise ValidationError(
+                conn.__class__, self.name,
+                "'pre' must be of type 'Ensemble' or 'Neurons' for learning "
+                "rule '%s' (got type '%s')" % (
+                    rule, conn.pre_obj.__class__.__name__))
 
         if not isinstance(conn.post_obj, (Ensemble, Neurons, Node)):
-            raise ValueError("'post' must be of type 'Ensemble', 'Neurons' "
-                             "or 'Node' for learning rule '%s' (got type '%s')"
-                             % (rule, conn.post_obj.__class__.__name__))
+            raise ValidationError(
+                conn.__class__, self.name,
+                "'post' must be of type 'Ensemble', 'Neurons' or 'Node' for "
+                "learning rule '%s' (got type '%s')" % (
+                    rule, conn.post_obj.__class__.__name__))
 
 
 class ConnectionSolverParam(SolverParam):
@@ -54,11 +61,13 @@ class ConnectionSolverParam(SolverParam):
         super(ConnectionSolverParam, self).validate(conn, solver)
         if solver is not None:
             if solver.weights and not isinstance(conn.pre_obj, Ensemble):
-                raise ValueError(
+                raise ValidationError(
+                    conn.__class__, self.name,
                     "weight solvers only work for connections from ensembles "
                     "(got '%s')" % conn.pre.__class__.__name__)
             if solver.weights and not isinstance(conn.post_obj, Ensemble):
-                raise ValueError(
+                raise ValidationError(
+                    conn.__class__, self.name,
                     "weight solvers only work for connections to ensembles "
                     "(got '%s')" % conn.post.__class__.__name__)
 
@@ -69,7 +78,7 @@ class EvalPointsParam(DistOrArrayParam):
         if not isinstance(conn.pre, Ensemble):
             msg = ("eval_points are only valid on connections from ensembles "
                    "(got type '%s')" % conn.pre.__class__.__name__)
-            raise ValueError(msg)
+            raise ValidationError(conn.__class__, self.name, msg)
         return super(EvalPointsParam, self).validate(conn, ndarray)
 
 
@@ -87,34 +96,40 @@ class ConnectionFunctionParam(FunctionParam):
         function, size = function_info
 
         if function is not None and not isinstance(conn.pre_obj, fn_ok):
-            raise ValueError("function can only be set for connections from "
-                             "an Ensemble or Node (got type '%s')"
-                             % conn.pre_obj.__class__.__name__)
+            raise ValidationError(
+                conn.__class__, self.name,
+                "function can only be set for connections from an Ensemble or "
+                "Node (got type '%s')" % conn.pre_obj.__class__.__name__)
 
         type_pre = conn.pre_obj.__class__.__name__
         transform = conn.transform
         size_mid = conn.size_in if function is None else size
 
         if transform.ndim < 2 and size_mid != conn.size_out:
-            raise ValueError("function output size is incorrect; should "
-                             "return a vector of size %d" % conn.size_out)
+            raise ValidationError(conn.__class__, self.name,
+                                  "function output size is incorrect; should "
+                                  "return a vector of size %d" % conn.size_out)
 
         if transform.ndim == 2 and size_mid != transform.shape[1]:
             # check input dimensionality matches transform
-            raise ValueError(
+            raise ValidationError(
+                conn.__class__, self.name,
                 "%s output size (%d) not equal to transform input size "
                 "(%d)" % (type_pre, size_mid, transform.shape[1]))
 
         if (function is not None and isinstance(conn.pre_obj, Node) and
                 conn.pre_obj.output is None):
-            raise ValueError("Cannot apply functions to passthrough nodes")
+            raise ValidationError(
+                conn.__class__, self.name,
+                "Cannot apply functions to passthrough nodes")
 
 
 class TransformParam(NdarrayParam):
     """The transform additionally validates size_out."""
 
-    def __init__(self, default, optional=False, readonly=False):
-        super(TransformParam, self).__init__(default, (), optional, readonly)
+    def __init__(self, name, default, optional=False, readonly=False):
+        super(TransformParam, self).__init__(
+            name, default, (), optional, readonly)
 
     def validate(self, conn, transform):
         transform = np.asarray(transform, dtype=np.float64)
@@ -127,7 +142,9 @@ class TransformParam(NdarrayParam):
             # Actually (size_out, size_mid) but Function handles size_mid
             self.shape = ('size_out', '*')
         else:
-            raise ValueError("Cannot handle transforms with dimensions > 2")
+            raise ValidationError(
+                conn.__class__, self.name,
+                "Cannot handle transforms with dimensions > 2")
 
         # Checks the shapes
         super(TransformParam, self).validate(conn, transform)
@@ -138,9 +155,12 @@ class TransformParam(NdarrayParam):
             repeated_inds = lambda x: (
                 not isinstance(x, slice) and np.unique(x).size != len(x))
             if repeated_inds(conn.pre_slice):
-                raise ValueError("Input object selection has repeated indices")
+                raise ValidationError(
+                    conn.__class__, self.name,
+                    "Input object selection has repeated indices")
             if repeated_inds(conn.post_slice):
-                raise ValueError(
+                raise ValidationError(
+                    conn.__class__, self.name,
                     "Output object selection has repeated indices")
 
         return transform
@@ -227,22 +247,27 @@ class Connection(NengoObject):
         The seed used for random number generation.
     """
 
-    pre = NengoObjectParam(nonzero_size_out=True)
-    post = NengoObjectParam(nonzero_size_in=True)
-    synapse = SynapseParam(default=Lowpass(0.005))
-    transform = TransformParam(default=np.array(1.0))
-    solver = ConnectionSolverParam(default=LstsqL2())
-    function_info = ConnectionFunctionParam(default=None, optional=True)
+    pre = NengoObjectParam('pre', nonzero_size_out=True)
+    post = NengoObjectParam('post', nonzero_size_in=True)
+    synapse = SynapseParam('synapse', default=Lowpass(0.005))
+    transform = TransformParam('transform', default=np.array(1.0))
+    solver = ConnectionSolverParam('solver', default=LstsqL2())
+    function_info = ConnectionFunctionParam(
+        'function', default=None, optional=True)
     learning_rule_type = ConnectionLearningRuleTypeParam(
-        default=None, optional=True)
-    eval_points = EvalPointsParam(
-        default=None, optional=True, sample_shape=('*', 'size_in'))
-    scale_eval_points = BoolParam(default=True)
-    seed = IntParam(default=None, optional=True)
-    modulatory = ObsoleteParam("Modulatory connections have been removed. "
-                               "Connect to a learning rule instead.",
-                               "https://github.com/nengo/nengo/issues/632"
-                               "#issuecomment-71663849")
+        'learning_rule_type', default=None, optional=True)
+    eval_points = EvalPointsParam('eval_points',
+                                  default=None,
+                                  optional=True,
+                                  sample_shape=('*', 'size_in'))
+    scale_eval_points = BoolParam('scale_eval_points', default=True)
+    seed = IntParam('seed', default=None, optional=True)
+    modulatory = ObsoleteParam(
+        'modulatory',
+        "Modulatory connections have been removed. "
+        "Connect to a learning rule instead.",
+        since="v2.1.0",
+        url="https://github.com/nengo/nengo/issues/632#issuecomment-71663849")
 
     def __init__(self, pre, post, synapse=Default, transform=Default,
                  solver=Default, learning_rule_type=Default, function=Default,

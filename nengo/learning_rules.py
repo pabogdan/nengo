@@ -1,16 +1,8 @@
 import warnings
 
-from nengo.base import NengoObjectParam
+from nengo.exceptions import ValidationError
 from nengo.params import Parameter, NumberParam
 from nengo.utils.compat import is_iterable, itervalues
-
-
-class ConnectionParam(NengoObjectParam):
-    def validate(self, instance, conn):
-        from nengo.connection import Connection
-        if not isinstance(conn, Connection):
-            raise ValueError("'%s' is not a Connection" % conn)
-        super(ConnectionParam, self).validate(instance, conn)
 
 
 class LearningRuleType(object):
@@ -20,7 +12,7 @@ class LearningRuleType(object):
     the Connection on which you want to do learning.
     """
 
-    learning_rate = NumberParam(low=0, low_open=True)
+    learning_rate = NumberParam('learning_rate', low=0, low_open=True)
     error_type = 'none'
     modifies = []
     probeable = []
@@ -59,7 +51,7 @@ class PES(LearningRuleType):
         The modulatory connection created to project the error signal.
     """
 
-    pre_tau = NumberParam(low=0, low_open=True)
+    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
     error_type = 'decoder'
     modifies = ['transform', 'decoders']
     probeable = ['error', 'correction', 'activities', 'delta']
@@ -98,9 +90,9 @@ class BCM(LearningRuleType):
         Filter constant on activities of neurons in post population.
     """
 
-    pre_tau = NumberParam(low=0, low_open=True)
-    post_tau = NumberParam(low=0, low_open=True)
-    theta_tau = NumberParam(low=0, low_open=True)
+    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
+    post_tau = NumberParam('post_tau', low=0, low_open=True)
+    theta_tau = NumberParam('theta_tau', low=0, low_open=True)
     error_type = 'none'
     modifies = ['transform']
     probeable = ['theta', 'pre_filtered', 'post_filtered', 'delta']
@@ -142,9 +134,9 @@ class Oja(LearningRuleType):
         Filter constant on activities of neurons in post population.
     """
 
-    pre_tau = NumberParam(low=0, low_open=True)
-    post_tau = NumberParam(low=0, low_open=True)
-    beta = NumberParam(low=0)
+    pre_tau = NumberParam('pre_tau', low=0, low_open=True)
+    post_tau = NumberParam('post_tau', low=0, low_open=True)
+    beta = NumberParam('beta', low=0)
     error_type = 'none'
     modifies = ['transform']
     probeable = ['pre_filtered', 'post_filtered', 'delta']
@@ -168,5 +160,7 @@ class LearningRuleTypeParam(Parameter):
 
     def validate_rule(self, instance, rule):
         if not isinstance(rule, LearningRuleType):
-            raise ValueError("'%s' must be a learning rule type or a dict or "
-                             "list of such types." % rule)
+            raise ValidationError(
+                instance.__class__, self.name,
+                "'%s' must be a learning rule type or a dict or list of "
+                "such types." % rule)

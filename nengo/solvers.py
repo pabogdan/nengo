@@ -11,8 +11,9 @@ import logging
 
 import numpy as np
 
-from nengo.params import Parameter
 import nengo.utils.numpy as npext
+from nengo.exceptions import ValidationError
+from nengo.params import Parameter
 from nengo.utils.compat import range, with_metaclass, iteritems
 from nengo.utils.magic import DocstringInheritor
 
@@ -553,5 +554,6 @@ class NnlsL2nz(Nnls):
 class SolverParam(Parameter):
     def validate(self, instance, solver):
         if solver is not None and not isinstance(solver, Solver):
-            raise ValueError("'%s' is not a solver" % solver)
+            raise ValidationError(instance.__class__, self.name,
+                                  "'%s' is not a solver" % solver)
         super(SolverParam, self).validate(instance, solver)

@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
 
+from nengo.exceptions import ValidationError
 from nengo.params import NdarrayParam, Parameter, Unconfigurable
 import nengo.utils.numpy as npext
 
@@ -319,17 +320,18 @@ class DistributionParam(Parameter):
 
     def validate(self, instance, dist):
         if dist is not None and not isinstance(dist, Distribution):
-            raise ValueError("'%s' is not a Distribution type" % dist)
+            raise ValidationError(instance.__class__, self.name,
+                                  "'%s' is not a Distribution type" % dist)
         super(DistributionParam, self).validate(instance, dist)
 
 
 class DistOrArrayParam(NdarrayParam):
     """Can be a Distribution or samples from a distribution."""
 
-    def __init__(self, default=Unconfigurable, sample_shape=None,
+    def __init__(self, name, default=Unconfigurable, sample_shape=None,
                  optional=False, readonly=False):
         super(DistOrArrayParam, self).__init__(
-            default, sample_shape, optional, readonly)
+            name, default, sample_shape, optional, readonly)
 
     def validate(self, instance, dist):
         if dist is not None and not isinstance(dist, Distribution):

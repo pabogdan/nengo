@@ -4,6 +4,7 @@ import numpy as np
 
 import nengo.utils.numpy as npext
 from nengo.dists import DistributionParam, Gaussian
+from nengo.exceptions import ValidationError
 from nengo.params import BoolParam, IntParam, NumberParam, Parameter
 from nengo.synapses import LinearFilter, LinearFilterParam, Lowpass
 from nengo.utils.compat import range
@@ -21,8 +22,8 @@ class Process(object):
         If `dt` isn't specified in `run`, `run_steps`, `ntrange`, or `trange`,
         this will be used. Default: 0.001 (1 millisecond).
     """
-    default_size_out = IntParam(low=0)
-    default_dt = NumberParam(low=0, low_open=True)
+    default_size_out = IntParam('default_size_out', low=0)
+    default_dt = NumberParam('default_dt', low=0, low_open=True)
 
     def __init__(self):
         self.default_size_out = 1
@@ -77,8 +78,8 @@ class WhiteNoise(Process):
        Uhlenbeck process and its integral. Phys. Rev. E 54, pp. 2084-91.
     """
 
-    dist = DistributionParam()
-    scale = BoolParam()
+    dist = DistributionParam('dist')
+    scale = BoolParam('scale')
 
     def __init__(self, dist=None, scale=True):
         super(WhiteNoise, self).__init__()
@@ -123,9 +124,9 @@ class FilteredNoise(Process):
         signal invariant to `dt`. Defaults to True.
     """
 
-    synapse = LinearFilterParam()
-    dist = DistributionParam()
-    scale = BoolParam()
+    synapse = LinearFilterParam('synapse')
+    dist = DistributionParam('dist')
+    scale = BoolParam('scale')
 
     def __init__(self, synapse=None, synapse_kwargs={}, dist=None, scale=True):
         super(FilteredNoise, self).__init__()
@@ -235,7 +236,7 @@ class ProcessParam(Parameter):
     def validate(self, instance, process):
         super(ProcessParam, self).validate(instance, process)
         if process is not None and not isinstance(process, Process):
-            raise ValueError("Must be Process (got type '%s')" % (
-                process.__class__.__name__))
-
+            raise ValidationError(instance.__class__, self.name,
+                                  "Must be Process (got type '%s')" % (
+                                      process.__class__.__name__))
         return process
