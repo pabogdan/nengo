@@ -1,6 +1,7 @@
 import hashlib
 import inspect
 import os
+import re
 
 import numpy as np
 import pytest
@@ -120,6 +121,15 @@ def analytics(request):
 
 
 @pytest.fixture
+def analytics_data(request):
+    paths = request.config.getvalue('compare')
+    function_name = parametrize_function_name(request, re.sub(
+        '^test_[a-zA-Z0-9]*_', 'test_', request.function.__name__, count=1))
+    return [Analytics.load(
+        p, request.module.__name__, function_name) for p in paths]
+
+
+@pytest.fixture
 def logger(request):
     """a logging.Logger object.
 
@@ -180,23 +190,6 @@ def pytest_generate_tests(metafunc):
             "nl_nodirect", [LIF, LIFRate, RectifiedLinear, Sigmoid])
 
 
-def pytest_addoption(parser):
-    parser.addoption(
-        '--plots', nargs='?', default=False, const=True,
-        help='Save plots (can optionally specify a directory for plots).')
-    parser.addoption(
-        '--analytics', nargs='?', default=False, const=True,
-        help='Save analytics (can optionally specify a directory for data).')
-    parser.addoption(
-        '--logs', nargs='?', default=False, const=True,
-        help='Save logs (can optionally specify a directory for logs).')
-    parser.addoption('--noexamples', action='store_false', default=True,
-                     help='Do not run examples')
-    parser.addoption(
-        '--slow', action='store_true', default=False,
-        help='Also run slow tests.')
-
-
 def pytest_runtest_setup(item):
     for mark, option, message in [
             ('example', 'noexamples', "examples not requested"),
@@ -218,3 +211,21 @@ def pytest_runtest_setup(item):
                     skipreasons.append(message)
         if skip:
             pytest.skip(" and ".join(skipreasons))
+
+
+def pytest_collection_modifyitems(session, config, items):
+    compare = config.getvalue('compare') is None
+    for item in list(items):
+        if (getattr(item.obj, 'compare', None) is None) != compare:
+            items.remove(item)
+
+
+def pytest_terminal_summary(terminalreporter):
+    reports = terminalreporter.getreports('passed')
+    if not reports or terminalreporter.config.getvalue('compare') is None:
+        return
+    terminalreporter.write_sep("=", "PASSED")
+    for rep in reports:
+        for name, content in rep.sections:
+            terminalreporter.writer.sep("-", name)
+            terminalreporter.writer.line(content)

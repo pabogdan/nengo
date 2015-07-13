@@ -539,18 +539,15 @@ def test_set_learning_rule():
     with nengo.Network():
         a = nengo.Ensemble(10, 2)
         b = nengo.Ensemble(10, 2)
-        err = nengo.Connection(a, b)
-        n = nengo.Node(output=lambda t, x: t * x, size_in=2)
-        nengo.Connection(a, b, learning_rule_type=nengo.PES(err))
-        nengo.Connection(a, b, learning_rule_type=nengo.PES(err),
+        nengo.Connection(a, b, learning_rule_type=nengo.PES())
+        nengo.Connection(a, b, learning_rule_type=nengo.PES(),
                          solver=LstsqL2(weights=True))
-        nengo.Connection(a.neurons, b.neurons,
-                         learning_rule_type=nengo.PES(err))
-        nengo.Connection(a.neurons, b.neurons,
-                         learning_rule_type=nengo.Oja())
+        nengo.Connection(a.neurons, b.neurons, learning_rule_type=nengo.PES())
+        nengo.Connection(a.neurons, b.neurons, learning_rule_type=nengo.Oja())
 
+        n = nengo.Node(output=lambda t, x: t * x, size_in=2)
         with pytest.raises(ValueError):
-            nengo.Connection(n, a, learning_rule_type=nengo.PES(err))
+            nengo.Connection(n, a, learning_rule_type=nengo.PES())
 
 
 def test_set_function(Simulator):
@@ -720,3 +717,11 @@ def test_transform_probe(Simulator):
         nengo.Probe(c_ens, "transform")
         nengo.Probe(c_ens_neurons, "transform")
     assert Simulator(net)
+
+
+def test_nomodulatory(Simulator):
+    """Make sure you cannot set modulatory=True on connections."""
+    with nengo.Network():
+        a = nengo.Ensemble(10, 1)
+        with pytest.raises(ValueError):
+            nengo.Connection(a, a, modulatory=True)

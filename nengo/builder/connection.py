@@ -4,8 +4,8 @@ import numpy as np
 
 import nengo.utils.numpy as npext
 from nengo.builder.builder import Builder
-from nengo.builder.ensemble import gen_eval_points
-from nengo.builder.node import build_pyfunc
+from nengo.builder.ensemble import gen_eval_points, get_activities
+from nengo.builder.node import SimPyFunc
 from nengo.builder.operator import DotInc, ElementwiseInc, PreserveValue, Reset
 from nengo.builder.signal import Signal
 from nengo.builder.synapses import filtered_signal
@@ -14,32 +14,23 @@ from nengo.ensemble import Ensemble, Neurons
 from nengo.neurons import Direct
 from nengo.node import Node
 from nengo.utils.builder import full_transform
+from nengo.utils.compat import is_iterable, itervalues
 
 
 BuiltConnection = collections.namedtuple(
     'BuiltConnection', ['decoders', 'eval_points', 'transform', 'solver_info'])
 
 
-def build_linear_system(model, conn, rng):
-    encoders = model.params[conn.pre_obj].encoders
-    gain = model.params[conn.pre_obj].gain
-    bias = model.params[conn.pre_obj].bias
-
+def get_eval_points(model, conn, rng):
     if conn.eval_points is None:
-        eval_points = npext.array(
+        return npext.array(
             model.params[conn.pre_obj].eval_points, min_dims=2)
     else:
-        eval_points = gen_eval_points(
+        return gen_eval_points(
             conn.pre_obj, conn.eval_points, rng, conn.scale_eval_points)
 
-    x = np.dot(eval_points, encoders.T / conn.pre_obj.radius)
-    activities = conn.pre_obj.neuron_type.rates(x, gain, bias)
-    if np.count_nonzero(activities) == 0:
-        raise RuntimeError(
-            "Building %s: 'activites' matrix is all zero for %s. "
-            "This is because no evaluation points fall in the firing "
-            "ranges of any neurons." % (conn, conn.pre_obj))
 
+def get_targets(model, conn, eval_points):
     if conn.function is None:
         targets = eval_points[:, conn.pre_slice]
     else:
@@ -47,6 +38,19 @@ def build_linear_system(model, conn, rng):
         for i, ep in enumerate(eval_points[:, conn.pre_slice]):
             targets[i] = conn.function(ep)
 
+    return targets
+
+
+def build_linear_system(model, conn, rng):
+    eval_points = get_eval_points(model, conn, rng)
+    activities = get_activities(model, conn.pre_obj, eval_points)
+    if np.count_nonzero(activities) == 0:
+        raise RuntimeError(
+            "Building %s: 'activites' matrix is all zero for %s. "
+            "This is because no evaluation points fall in the firing "
+            "ranges of any neurons." % (conn, conn.pre_obj))
+
+    targets = get_targets(model, conn, eval_points)
     return eval_points, activities, targets
 
 
@@ -88,18 +92,11 @@ def build_connection(model, conn):
                 (conn.pre_slice.step is None or conn.pre_slice.step == 1)):
             signal = model.sig[conn]['in'][conn.pre_slice]
         else:
-            sig_in, signal = build_pyfunc(
-                fn=(lambda x: x[conn.pre_slice]) if conn.function is None else
-                   (lambda x: conn.function(x[conn.pre_slice])),
-                t_in=False,
-                n_in=model.sig[conn]['in'].size,
-                n_out=conn.size_mid,
-                label=str(conn),
-                model=model)
-            model.add_op(DotInc(model.sig[conn]['in'],
-                                model.sig['common'][1],
-                                sig_in,
-                                tag="%s input" % conn))
+            signal = Signal(np.zeros(conn.size_mid), name='%s.func' % conn)
+            fn = ((lambda x: x[conn.pre_slice]) if conn.function is None else
+                  (lambda x: conn.function(x[conn.pre_slice])))
+            model.add_op(SimPyFunc(
+                output=signal, fn=fn, t_in=False, x=model.sig[conn]['in']))
     elif isinstance(conn.pre_obj, Ensemble):
         # Normal decoded connection
         eval_points, activities, targets = build_linear_system(
@@ -107,8 +104,9 @@ def build_connection(model, conn):
 
         # Use cached solver, if configured
         solver = model.decoder_cache.wrap_solver(conn.solver)
+
         if conn.solver.weights:
-            # account for transform
+            # include transform in solved weights
             targets = np.dot(targets, transform.T)
             transform = np.array(1., dtype=np.float64)
 
@@ -139,13 +137,6 @@ def build_connection(model, conn):
     # Add operator for filtering
     if conn.synapse is not None:
         signal = filtered_signal(model, conn, signal, conn.synapse)
-
-    if conn.modulatory:
-        # Make a new signal, effectively detaching from post
-        model.sig[conn]['out'] = Signal(
-            np.zeros(model.sig[conn]['out'].size),
-            name="%s.mod_output" % conn)
-        model.add_op(Reset(model.sig[conn]['out']))
 
     # Add operator for transform
     if isinstance(conn.post_obj, Neurons):
@@ -180,29 +171,26 @@ def build_connection(model, conn):
                             model.sig[conn]['out'],
                             tag=str(conn)))
 
-    if conn.learning_rule_type:
-        # Forcing update of signal that is modified by learning rules.
-        # Learning rules themselves apply DotIncs.
-
-        if isinstance(conn.pre_obj, Neurons):
-            modified_signal = model.sig[conn]['transform']
-        elif isinstance(conn.pre_obj, Ensemble):
-            if conn.solver.weights:
-                # TODO: make less hacky.
-                # Have to do this because when a weight_solver
-                # is provided, then learning rules should operators on
-                # "decoders" which is really the weight matrix.
-                model.sig[conn]['transform'] = model.sig[conn]['decoders']
-                modified_signal = model.sig[conn]['transform']
-            else:
-                modified_signal = model.sig[conn]['decoders']
+    # Build learning rules
+    if conn.learning_rule:
+        if isinstance(conn.pre_obj, Ensemble):
+            model.add_op(PreserveValue(model.sig[conn]['decoders']))
         else:
-            raise TypeError("Can't apply learning rules to connections of "
-                            "this type. pre type: %s, post type: %s"
-                            % (type(conn.pre_obj).__name__,
-                               type(conn.post_obj).__name__))
+            model.add_op(PreserveValue(model.sig[conn]['transform']))
 
-        model.add_op(PreserveValue(modified_signal))
+        if isinstance(conn.pre_obj, Ensemble) and conn.solver.weights:
+            # TODO: make less hacky.
+            # Have to do this because when a weight_solver
+            # is provided, then learning rules should operate on
+            # "decoders" which is really the weight matrix.
+            model.sig[conn]['transform'] = model.sig[conn]['decoders']
+
+        rule = conn.learning_rule
+        if is_iterable(rule):
+            for r in itervalues(rule) if isinstance(rule, dict) else rule:
+                model.build(r)
+        elif rule is not None:
+            model.build(rule)
 
     model.params[conn] = BuiltConnection(decoders=decoders,
                                          eval_points=eval_points,
