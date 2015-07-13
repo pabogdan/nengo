@@ -106,15 +106,22 @@ def test_transform(rng):
     A = v1.parse('A')
     B = v1.parse('B')
     C = v1.parse('C')
+
+    # Test transform from v1 to v2 (full vocbulary)
+    # Expected: np.dot(t, A.v) ~= v2.parse('A')
+    # Expected: np.dot(t, B.v) ~= v2.parse('B')
+    # Expected: np.dot(t, C.v) ~= v2.parse('C')
     t = v1.transform_to(v2)
 
     assert v2.parse('A').compare(np.dot(t, A.v)) > 0.95
     assert v2.parse('C+B').compare(np.dot(t, C.v + B.v)) > 0.9
 
+    # Test transform from v1 to v2 (only 'A' and 'B')
+    #
     t = v1.transform_to(v2, keys=['A', 'B'])
 
     assert v2.parse('A').compare(np.dot(t, A.v)) > 0.95
-    assert v2.parse('B').compare(np.dot(t, B.v)) > 0.95
+    assert v2.parse('B').compare(np.dot(t, C.v + B.v)) > 0.95
 
     # Test transform_to when either vocabulary is read-only
     v1.parse('D')
@@ -129,7 +136,7 @@ def test_transform(rng):
     t = v1.transform_to(v2)
 
     assert v1.keys == ['A', 'B', 'C', 'D']
-    assert v2.keys == ['A', 'C', 'B', 'E']
+    assert v2.keys == ['A', 'B', 'C', 'E']
 
     # When one is read-only, transform_to should add any new items to the non
     # read-only vocabulary
@@ -139,7 +146,7 @@ def test_transform(rng):
     t = v1.transform_to(v2)
 
     assert v1.keys == ['A', 'B', 'C', 'D', 'E']
-    assert v2.keys == ['A', 'C', 'B', 'E']
+    assert v2.keys == ['A', 'B', 'C', 'E']
 
     # When one is read-only, transform_to should add any new items to the non
     # read-only vocabulary
@@ -149,7 +156,7 @@ def test_transform(rng):
     t = v1.transform_to(v2)
 
     assert v1.keys == ['A', 'B', 'C', 'D', 'E']
-    assert v2.keys == ['A', 'C', 'B', 'E', 'D']
+    assert v2.keys == ['A', 'B', 'C', 'E', 'D']
 
 
 def test_prob_cleanup():

@@ -344,16 +344,15 @@ class Vocabulary(object):
             return np.eye(self.dimensions)
         else:
             if keys is None:
-                keys1 = set(self.keys)
-                keys2 = set(other.keys)
                 if self.read_only and other.read_only:
-                    keys = list(keys1.intersection(keys2))
+                    keys = [k for k in self.keys if k in other.keys]
                 elif self.read_only:
                     keys = list(self.keys)
                 elif other.read_only:
                     keys = list(other.keys)
                 else:
-                    keys = list(keys1.union(keys2))
+                    keys = list(self.keys)
+                    keys.extend(other.keys)
 
             t = np.zeros((other.dimensions, self.dimensions), dtype=float)
             for k in keys:
