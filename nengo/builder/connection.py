@@ -14,6 +14,7 @@ from nengo.ensemble import Ensemble, Neurons
 from nengo.neurons import Direct
 from nengo.node import Node
 from nengo.utils.builder import full_transform
+from nengo.utils.compat import is_iterable, itervalues
 
 
 BuiltConnection = collections.namedtuple(
@@ -103,8 +104,9 @@ def build_connection(model, conn):
 
         # Use cached solver, if configured
         solver = model.decoder_cache.wrap_solver(conn.solver)
+
         if conn.solver.weights:
-            # account for transform
+            # include transform in solved weights
             targets = np.dot(targets, transform.T)
             transform = np.array(1., dtype=np.float64)
 
@@ -135,13 +137,6 @@ def build_connection(model, conn):
     # Add operator for filtering
     if conn.synapse is not None:
         signal = filtered_signal(model, conn, signal, conn.synapse)
-
-    if conn.modulatory:
-        # Make a new signal, effectively detaching from post
-        model.sig[conn]['out'] = Signal(
-            np.zeros(model.sig[conn]['out'].size),
-            name="%s.mod_output" % conn)
-        model.add_op(Reset(model.sig[conn]['out']))
 
     # Add operator for transform
     if isinstance(conn.post_obj, Neurons):
@@ -176,29 +171,26 @@ def build_connection(model, conn):
                             model.sig[conn]['out'],
                             tag=str(conn)))
 
-    if conn.learning_rule_type:
-        # Forcing update of signal that is modified by learning rules.
-        # Learning rules themselves apply DotIncs.
-
-        if isinstance(conn.pre_obj, Neurons):
-            modified_signal = model.sig[conn]['transform']
-        elif isinstance(conn.pre_obj, Ensemble):
-            if conn.solver.weights:
-                # TODO: make less hacky.
-                # Have to do this because when a weight_solver
-                # is provided, then learning rules should operators on
-                # "decoders" which is really the weight matrix.
-                model.sig[conn]['transform'] = model.sig[conn]['decoders']
-                modified_signal = model.sig[conn]['transform']
-            else:
-                modified_signal = model.sig[conn]['decoders']
+    # Build learning rules
+    if conn.learning_rule:
+        if isinstance(conn.pre_obj, Ensemble):
+            model.add_op(PreserveValue(model.sig[conn]['decoders']))
         else:
-            raise TypeError("Can't apply learning rules to connections of "
-                            "this type. pre type: %s, post type: %s"
-                            % (type(conn.pre_obj).__name__,
-                               type(conn.post_obj).__name__))
+            model.add_op(PreserveValue(model.sig[conn]['transform']))
 
-        model.add_op(PreserveValue(modified_signal))
+        if isinstance(conn.pre_obj, Ensemble) and conn.solver.weights:
+            # TODO: make less hacky.
+            # Have to do this because when a weight_solver
+            # is provided, then learning rules should operate on
+            # "decoders" which is really the weight matrix.
+            model.sig[conn]['transform'] = model.sig[conn]['decoders']
+
+        rule = conn.learning_rule
+        if is_iterable(rule):
+            for r in itervalues(rule) if isinstance(rule, dict) else rule:
+                model.build(r)
+        elif rule is not None:
+            model.build(rule)
 
     model.params[conn] = BuiltConnection(decoders=decoders,
                                          eval_points=eval_points,
