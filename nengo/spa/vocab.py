@@ -144,8 +144,15 @@ class Vocabulary(object):
         The pointer value can be a SemanticPointer or a vector.
         """
         if self.read_only:
-            raise ValueError(("Cannot add semantic pointer '%s' to read-only" +
-                              " vocabulary.") % key)
+            if self.parent is None:
+                # If this vocabulary is not a subset vocabulary, throw an error
+                raise ValueError(("Cannot add semantic pointer '%s' to " +
+                                  "read-only vocabulary.") % key)
+            else:
+                # If this vocabulary is a subset vocabulary, apply operation on
+                # parent vocab.
+                self.parent.add(key, p)
+                return
 
         if not key[0].isupper():
             raise KeyError('Semantic pointers must begin with a capital')
