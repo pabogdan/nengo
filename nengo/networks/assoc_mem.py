@@ -6,6 +6,7 @@ from nengo.networks import EnsembleArray
 from nengo.dists import Uniform, Choice, ClippedExpDist
 from nengo.utils.compat import is_iterable
 from nengo.utils.network import with_self
+from nengo.utils.stdlib import nested
 
 
 def filtered_step(t, shift=0.5, scale=50, step_val=1):
@@ -141,7 +142,7 @@ class AssociativeMemory(nengo.Network):
         self._using_wta = False
 
         # Create the associative memory network
-        with config, self, am_ens_config:
+        with nested(config, self, am_ens_config):
             self.bias_node = nengo.Node(output=1)
 
             self.input = nengo.Node(size_in=input_vectors.shape[1],
@@ -261,7 +262,7 @@ class AssociativeMemory(nengo.Network):
         default_ens_config[nengo.Ensemble].eval_points = Uniform(0.0, 1.0)
         default_ens_config[nengo.Ensemble].n_eval_points = self.n_eval_points
 
-        with config, self, default_ens_config:
+        with nested(config, self, default_ens_config):
             default_vector_ens = nengo.Ensemble(n_neurons, 1,
                                                 label=('Default %s vector' %
                                                        output_name))
@@ -327,7 +328,7 @@ class AssociativeMemory(nengo.Network):
         thresh_ens_config[nengo.Ensemble].eval_points = Uniform(0.75, 1.1)
         thresh_ens_config[nengo.Ensemble].n_eval_points = self.n_eval_points
 
-        with config, self, thresh_ens_config:
+        with nested(config, self, thresh_ens_config):
             self.thresh_bias = EnsembleArray(n_neurons, self.num_items,
                                              label='thresh_bias')
             self.thresh_ens = EnsembleArray(n_neurons, self.num_items,
