@@ -229,6 +229,26 @@ def test_frozen():
         a.dist.std = 0.4  # test that dist object is frozen
 
 
+def test_present_input(Simulator, rng):
+    n = 5
+    c, ni, nj = 3, 8, 8
+    images = rng.normal(size=(n, c, ni, nj))
+    pres_time = 0.1
+
+    model = nengo.Network()
+    with model:
+        u = nengo.Node(nengo.processes.PresentInput(images, pres_time))
+        up = nengo.Probe(u)
+
+    sim = Simulator(model)
+    sim.run(1.0)
+    t = sim.trange()
+    i = np.floor(t / pres_time) % n
+    y = sim.data[up].reshape(len(t), c, ni, nj)
+    for ii, image in zip(i, y):
+        assert np.allclose(image, images[ii], rtol=1e-4, atol=1e-7)
+
+
 @pytest.mark.parametrize('local', [False, True])
 def test_conv2(local, Simulator, rng):
     f = 4
@@ -266,4 +286,4 @@ def test_conv2(local, Simulator, rng):
     sim = Simulator(model)
     sim.run_steps(3)
     y = sim.data[vp][-1].reshape((f, ni, nj))
-    assert np.allclose(result, y)
+    assert np.allclose(result, y, rtol=1e-4, atol=1e-7)
