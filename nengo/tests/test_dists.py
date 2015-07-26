@@ -79,6 +79,28 @@ def test_hypersphere_surface(dimensions, rng):
     assert np.allclose(np.mean(samples, axis=0), 0, atol=0.25 / dimensions)
 
 
+@pytest.mark.parametrize("low,high", [(-2, -1), (-1, 1), (1, 2), (1, -1)])
+def test_hypersphere_low_high(low, high, rng):
+    dimensions = 16
+    n = 150 * dimensions
+
+    dist = dists.UniformHypersphere(low=low, high=high)
+    samples = dist.sample(n, dimensions, rng=rng)
+
+    assert samples.shape == (n, dimensions)
+
+    low_mag = max(low, 0)
+    high_mag = max(high, low_mag)
+
+    sample_mags = np.array(map(lambda x: np.linalg.norm(x), samples))
+
+    if low_mag < high_mag:
+        assert np.all(sample_mags >= low_mag)
+        assert np.all(sample_mags < high_mag)
+    else:
+        assert np.allclose(sample_mags, high_mag, atol=0.1)
+
+
 @pytest.mark.parametrize("weights", [None, [5, 1, 2, 9], [3, 2, 1, 0]])
 def test_choice(weights, rng):
     n = 1000

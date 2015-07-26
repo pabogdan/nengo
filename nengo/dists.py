@@ -148,6 +148,13 @@ class UniformHypersphere(Distribution):
 
     Parameters
     ----------
+    low : Number
+        The closed lower bound of the uniform hypersphere distribution;
+        sample magnitudes >= low. The default value and minimum value for
+        low is 0.
+    high : Number
+        The open upper bound of the uniform hypersphere distribution;
+        sample magnitudes < high. The minimum value for high is low.
     surface : bool
         Whether sample points should be distributed uniformly
         over the surface of the hyperphere (True),
@@ -157,9 +164,11 @@ class UniformHypersphere(Distribution):
     """
 
     def __init__(self, low=0, high=1, surface=False):
-        self.surface = surface
-        self.low = low
-        self.high = high
+        self.low = max(low, 0)
+        self.high = max(high, self.low)
+
+        if surface:
+            self.low = self.high
 
     def __repr__(self):
         return "UniformHypersphere(%s)" % (
@@ -172,14 +181,11 @@ class UniformHypersphere(Distribution):
         samples = rng.randn(n, d)
         samples /= npext.norm(samples, axis=1, keepdims=True)
 
-        if self.surface:
-            return samples
-
         # Generate magnitudes for vectors from uniform distribution.
         # The (1 / d) exponent ensures that samples are uniformly distributed
         # in n-space and not all bunched up at the centre of the sphere.
         # samples *= rng.rand(n, 1) ** (1.0 / d)
-        samples *= rng.uniform(low=self.low, high=self.high,
+        samples *= rng.uniform(low=self.low ** d, high=self.high ** d,
                                size=(n, 1)) ** (1.0 / d)
 
         return samples
