@@ -156,8 +156,10 @@ class UniformHypersphere(Distribution):
 
     """
 
-    def __init__(self, surface=False):
+    def __init__(self, low=0, high=1, surface=False):
         self.surface = surface
+        self.low = low
+        self.high = high
 
     def __repr__(self):
         return "UniformHypersphere(%s)" % (
@@ -176,7 +178,9 @@ class UniformHypersphere(Distribution):
         # Generate magnitudes for vectors from uniform distribution.
         # The (1 / d) exponent ensures that samples are uniformly distributed
         # in n-space and not all bunched up at the centre of the sphere.
-        samples *= rng.rand(n, 1) ** (1.0 / d)
+        # samples *= rng.rand(n, 1) ** (1.0 / d)
+        samples *= rng.uniform(low=self.low, high=self.high,
+                               size=(n, 1)) ** (1.0 / d)
 
         return samples
 
