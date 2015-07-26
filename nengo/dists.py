@@ -171,8 +171,9 @@ class UniformHypersphere(Distribution):
             self.low = self.high
 
     def __repr__(self):
-        return "UniformHypersphere(%s)" % (
-            "surface=True" if self.surface else "")
+        return "UniformHypersphere(low=%f, high=%f%s)" % (
+            self.low, self.high,
+            ", surface=True" if self.low == self.high else "")
 
     def sample(self, n, d, rng=np.random):
         if d is None or d < 1:  # check this, since other dists allow d = None
