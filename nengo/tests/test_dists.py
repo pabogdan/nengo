@@ -69,14 +69,16 @@ def test_hypersphere(dimensions, rng):
         assert np.allclose(hist - np.mean(hist), 0, atol=0.1 * n)
 
 
-@pytest.mark.parametrize("dimensions", [1, 2, 5])
-def test_hypersphere_surface(dimensions, rng):
+@pytest.mark.parametrize("high,dimensions", [(1, 1), (1, 2), (1, 5),
+                                             (2, 1), (2, 2), (2, 5)])
+def test_hypersphere_surface(high, dimensions, rng):
     n = 150 * dimensions
-    dist = dists.UniformHypersphere(surface=True)
+    dist = dists.UniformHypersphere(high=high, surface=True)
     samples = dist.sample(n, dimensions, rng=rng)
     assert samples.shape == (n, dimensions)
-    assert np.allclose(npext.norm(samples, axis=1), 1)
-    assert np.allclose(np.mean(samples, axis=0), 0, atol=0.25 / dimensions)
+    assert np.allclose(npext.norm(samples, axis=1), high)
+    assert np.allclose(np.mean(samples, axis=0), 0,
+                       atol=high * 0.25 / dimensions)
 
 
 @pytest.mark.parametrize("low,high", [(-2, -1), (-1, 1), (1, 2), (1, -1)])
@@ -89,16 +91,24 @@ def test_hypersphere_low_high(low, high, rng):
 
     assert samples.shape == (n, dimensions)
 
+    # Test if the distributions low and high values are set correctly wrt the
+    # provided low and high values
+    if low < 0:
+        assert dist.low == 0
+    if high < 0:
+        assert dist.high == dist.low
+    assert dist.low <= dist.high
+
+    # Calculate expected low and high values
     low_mag = max(low, 0)
     high_mag = max(high, low_mag)
 
-    sample_mags = np.array(map(lambda x: np.linalg.norm(x), samples))
-
+    # Check that sampled vector magnitudes are correct
     if low_mag < high_mag:
-        assert np.all(sample_mags >= low_mag)
-        assert np.all(sample_mags < high_mag)
+        assert np.all(npext.norm(samples, axis=1) >= low_mag)
+        assert np.all(npext.norm(samples, axis=1) < high_mag)
     else:
-        assert np.allclose(sample_mags, high_mag, atol=0.1)
+        assert np.allclose(npext.norm(samples, axis=1), high_mag)
 
 
 @pytest.mark.parametrize("weights", [None, [5, 1, 2, 9], [3, 2, 1, 0]])
