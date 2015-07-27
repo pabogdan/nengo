@@ -54,38 +54,39 @@ def test_gaussian(mean, std, rng):
         assert abs(np.std(samples) - std) < 0.25  # using chi2 for n=100
 
 
-@pytest.mark.parametrize("low,dimensions", [(0, 0), (0, 1), (0, 2), (0, 5),
-                                            (0.5, 1), (0.5, 2), (0.5, 5),
-                                            (2, 1), (-2, 1)])
-def test_hypersphere(low, dimensions, rng):
+@pytest.mark.parametrize("min_magnitude,dimensions",
+                         [(0, 0), (0, 1), (0, 2), (0, 5),
+                          (0.5, 1), (0.5, 2), (0.5, 5), (2, 1), (-2, 1)])
+def test_hypersphere(min_magnitude, dimensions, rng):
     n = 150 * dimensions
     if dimensions < 1:
         with pytest.raises(ValueError):
-            dist = dists.UniformHypersphere(low).sample(1, dimensions)
+            dist = dists.UniformHypersphere(min_magnitude).sample(1,
+                                                                  dimensions)
     else:
-        dist = dists.UniformHypersphere(low)
+        dist = dists.UniformHypersphere(min_magnitude)
         samples = dist.sample(n, dimensions, rng=rng)
         assert samples.shape == (n, dimensions)
         assert np.allclose(np.mean(samples, axis=0), 0, atol=0.1)
 
         # Check the distribution of sample points (only applicable when
         # low < 1)
-        if low < 1:
+        if min_magnitude < 1:
             hist, _ = np.histogramdd(samples, bins=8)
-            # Use 8 bins to allow for the low=0.5 case
+            # Use 8 bins to allow for the min_magnitude=0.5 case
             assert np.allclose(hist[hist > 0] - np.mean(hist[hist > 0]), 0,
                                atol=0.1 * n)
 
         # Test if the distributions low and high values are set correctly
         # wrt the provided low and high values
-        if low < 0:
-            assert dist.low == 0
-        if low > 1:
-            assert dist.low == 1
+        if min_magnitude < 0:
+            assert dist.min_magnitude == 0
+        if min_magnitude > 1:
+            assert dist.min_magnitude == 1
 
         # Check that sampled vector magnitudes are correct
-        if low <= 1:
-            assert np.all(npext.norm(samples, axis=1) >= low)
+        if min_magnitude <= 1:
+            assert np.all(npext.norm(samples, axis=1) >= min_magnitude)
         else:
             assert np.allclose(npext.norm(samples, axis=1), 1)
 

@@ -148,27 +148,29 @@ class UniformHypersphere(Distribution):
 
     Parameters
     ----------
-    low : Number
+    min_magnitude : Number
         The closed lower bound of the uniform hypersphere distribution;
-        sample magnitudes >= low. The default value and minimum value for
-        low is 0. The maximum value for low is 1. Values outside this range
+        such that the sampled vector magnitudes >= min_magnitude.
+        The default value and minimum value for min_magnitude is 0.
+        The maximum value for min_magnitude is 1. Values outside this range
         will be clipped to this range.
     surface : bool
         Whether sample points should be distributed uniformly
         over the surface of the hyperphere (True),
-        or within the hypersphere (False). If True, the magnitudes of the
-        vectors returned will be equal to high.
+        or within the hypersphere (False).
+        Note: Setting surface to True generates sample points from the
+        hypersphere surface irregardless of what the value of min_magnitude is.
         Default: False
 
     """
 
-    def __init__(self, low=0, surface=False):
-        self.low = min(max(low, 0), 1)
+    def __init__(self, min_magnitude=0, surface=False):
+        self.min_magnitude = min(max(min_magnitude, 0), 1)
         self.surface = surface
 
     def __repr__(self):
-        return "UniformHypersphere(low=%f%s)" % (
-            self.low, ", surface=True" if self.surface else "")
+        return "UniformHypersphere(min_magnitude=%f%s)" % (
+            self.min_magnitude, ", surface=True" if self.surface else "")
 
     def sample(self, n, d, rng=np.random):
         if d is None or d < 1:  # check this, since other dists allow d = None
@@ -177,8 +179,6 @@ class UniformHypersphere(Distribution):
         samples = rng.randn(n, d)
         samples /= npext.norm(samples, axis=1, keepdims=True)
 
-        # If asking for samples on surface of hypersphere, just return samples
-        # scaled by high (max magnitude)
         if self.surface:
             return samples
 
@@ -186,7 +186,7 @@ class UniformHypersphere(Distribution):
         # The (1 / d) exponent ensures that samples are uniformly distributed
         # in n-space and not all bunched up at the centre of the sphere.
         # samples *= rng.rand(n, 1) ** (1.0 / d)
-        samples *= rng.uniform(low=self.low ** d, high=1,
+        samples *= rng.uniform(low=self.min_magnitude ** d, high=1,
                                size=(n, 1)) ** (1.0 / d)
 
         return samples
