@@ -229,6 +229,34 @@ def test_frozen():
         a.dist.std = 0.4  # test that dist object is frozen
 
 
+def test_seed(Simulator, seed):
+    with nengo.Network() as model:
+        a = nengo.Node(WhiteSignal(0.1, high=100, seed=seed))
+        b = nengo.Node(WhiteSignal(0.1, high=100, seed=seed+1))
+        c = nengo.Node(WhiteSignal(0.1, high=100))
+        d = nengo.Node(WhiteNoise(seed=seed))
+        e = nengo.Node(WhiteNoise())
+        ap = nengo.Probe(a)
+        bp = nengo.Probe(b)
+        cp = nengo.Probe(c)
+        dp = nengo.Probe(d)
+        ep = nengo.Probe(e)
+
+    sim1 = nengo.Simulator(model)
+    sim1.run(0.1)
+
+    sim2 = nengo.Simulator(model)
+    sim2.run(0.1)
+
+    tols = dict(atol=1e-7, rtol=1e-4)
+    assert np.allclose(sim1.data[ap], sim2.data[ap], **tols)
+    assert np.allclose(sim1.data[bp], sim2.data[bp], **tols)
+    assert not np.allclose(sim1.data[cp], sim2.data[cp], **tols)
+    assert not np.allclose(sim1.data[ap], sim1.data[bp], **tols)
+    assert np.allclose(sim1.data[dp], sim2.data[dp], **tols)
+    assert not np.allclose(sim1.data[ep], sim2.data[ep], **tols)
+
+
 def test_present_input(Simulator, rng):
     n = 5
     c, ni, nj = 3, 8, 8
