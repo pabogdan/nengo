@@ -151,11 +151,8 @@ class UniformHypersphere(Distribution):
     low : Number
         The closed lower bound of the uniform hypersphere distribution;
         sample magnitudes >= low. The default value and minimum value for
-        low is 0. Values provided out of this range will be corrected.
-    high : Number
-        The open upper bound of the uniform hypersphere distribution;
-        sample magnitudes < high. The minimum value for high is low.
-        Values provided out of this range will be corrected.
+        low is 0. The maximum value for low is 1. Values outside this range
+        will be clipped to this range.
     surface : bool
         Whether sample points should be distributed uniformly
         over the surface of the hyperphere (True),
@@ -165,15 +162,13 @@ class UniformHypersphere(Distribution):
 
     """
 
-    def __init__(self, low=0, high=1, surface=False):
-        self.low = max(low, 0)
-        self.high = max(high, self.low)
+    def __init__(self, low=0, surface=False):
+        self.low = min(max(low, 0), 1)
         self.surface = surface
 
     def __repr__(self):
-        return "UniformHypersphere(low=%f, high=%f%s)" % (
-            self.low, self.high,
-            ", surface=True" if self.surface else "")
+        return "UniformHypersphere(low=%f%s)" % (
+            self.low, ", surface=True" if self.surface else "")
 
     def sample(self, n, d, rng=np.random):
         if d is None or d < 1:  # check this, since other dists allow d = None
@@ -185,13 +180,13 @@ class UniformHypersphere(Distribution):
         # If asking for samples on surface of hypersphere, just return samples
         # scaled by high (max magnitude)
         if self.surface:
-            return samples * self.high
+            return samples
 
         # Generate magnitudes for vectors from uniform distribution.
         # The (1 / d) exponent ensures that samples are uniformly distributed
         # in n-space and not all bunched up at the centre of the sphere.
         # samples *= rng.rand(n, 1) ** (1.0 / d)
-        samples *= rng.uniform(low=self.low ** d, high=self.high ** d,
+        samples *= rng.uniform(low=self.low ** d, high=1,
                                size=(n, 1)) ** (1.0 / d)
 
         return samples

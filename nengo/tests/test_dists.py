@@ -54,61 +54,50 @@ def test_gaussian(mean, std, rng):
         assert abs(np.std(samples) - std) < 0.25  # using chi2 for n=100
 
 
-@pytest.mark.parametrize("dimensions", [0, 1, 2, 5])
-def test_hypersphere(dimensions, rng):
+@pytest.mark.parametrize("low,dimensions", [(0, 0), (0, 1), (0, 2), (0, 5),
+                                            (0.5, 1), (0.5, 2), (0.5, 5),
+                                            (2, 1), (-2, 1)])
+def test_hypersphere(low, dimensions, rng):
     n = 150 * dimensions
     if dimensions < 1:
         with pytest.raises(ValueError):
-            dist = dists.UniformHypersphere().sample(1, dimensions)
+            dist = dists.UniformHypersphere(low).sample(1, dimensions)
     else:
-        dist = dists.UniformHypersphere()
+        dist = dists.UniformHypersphere(low)
         samples = dist.sample(n, dimensions, rng=rng)
         assert samples.shape == (n, dimensions)
         assert np.allclose(np.mean(samples, axis=0), 0, atol=0.1)
-        hist, _ = np.histogramdd(samples, bins=5)
-        assert np.allclose(hist - np.mean(hist), 0, atol=0.1 * n)
+
+        # Check the distribution of sample points (only applicable when
+        # low < 1)
+        if low < 1:
+            hist, _ = np.histogramdd(samples, bins=8)
+            # Use 8 bins to allow for the low=0.5 case
+            assert np.allclose(hist[hist > 0] - np.mean(hist[hist > 0]), 0,
+                               atol=0.1 * n)
+
+        # Test if the distributions low and high values are set correctly
+        # wrt the provided low and high values
+        if low < 0:
+            assert dist.low == 0
+        if low > 1:
+            assert dist.low == 1
+
+        # Check that sampled vector magnitudes are correct
+        if low <= 1:
+            assert np.all(npext.norm(samples, axis=1) >= low)
+        else:
+            assert np.allclose(npext.norm(samples, axis=1), 1)
 
 
-@pytest.mark.parametrize("high,dimensions", [(1, 1), (1, 2), (1, 5),
-                                             (2, 1), (2, 2), (2, 5)])
-def test_hypersphere_surface(high, dimensions, rng):
+@pytest.mark.parametrize("dimensions", [1, 2, 5])
+def test_hypersphere_surface(dimensions, rng):
     n = 150 * dimensions
-    dist = dists.UniformHypersphere(high=high, surface=True)
+    dist = dists.UniformHypersphere(surface=True)
     samples = dist.sample(n, dimensions, rng=rng)
     assert samples.shape == (n, dimensions)
-    assert np.allclose(npext.norm(samples, axis=1), high)
-    assert np.allclose(np.mean(samples, axis=0), 0,
-                       atol=high * 0.25 / dimensions)
-
-
-@pytest.mark.parametrize("low,high", [(-2, -1), (-1, 1), (1, 2), (1, -1)])
-def test_hypersphere_low_high(low, high, rng):
-    dimensions = 16
-    n = 150 * dimensions
-
-    dist = dists.UniformHypersphere(low=low, high=high)
-    samples = dist.sample(n, dimensions, rng=rng)
-
-    assert samples.shape == (n, dimensions)
-
-    # Test if the distributions low and high values are set correctly wrt the
-    # provided low and high values
-    if low < 0:
-        assert dist.low == 0
-    if high < 0:
-        assert dist.high == dist.low
-    assert dist.low <= dist.high
-
-    # Calculate expected low and high values
-    low_mag = max(low, 0)
-    high_mag = max(high, low_mag)
-
-    # Check that sampled vector magnitudes are correct
-    if low_mag < high_mag:
-        assert np.all(npext.norm(samples, axis=1) >= low_mag)
-        assert np.all(npext.norm(samples, axis=1) < high_mag)
-    else:
-        assert np.allclose(npext.norm(samples, axis=1), high_mag)
+    assert np.allclose(npext.norm(samples, axis=1), 1)
+    assert np.allclose(np.mean(samples, axis=0), 0, atol=0.25 / dimensions)
 
 
 @pytest.mark.parametrize("weights", [None, [5, 1, 2, 9], [3, 2, 1, 0]])
