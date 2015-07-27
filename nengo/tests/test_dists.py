@@ -77,8 +77,8 @@ def test_hypersphere(min_magnitude, dimensions, rng):
             assert np.allclose(hist[hist > 0] - np.mean(hist[hist > 0]), 0,
                                atol=0.1 * n)
 
-        # Test if the distributions low and high values are set correctly
-        # wrt the provided low and high values
+        # Test if the distribution's min_magnitude value is set correctly
+        # wrt the provided min_magnitude value
         if min_magnitude < 0:
             assert dist.min_magnitude == 0
         if min_magnitude > 1:
