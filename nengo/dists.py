@@ -159,7 +159,7 @@ class UniformHypersphere(Distribution):
         over the surface of the hyperphere (True),
         or within the hypersphere (False).
         Note: Setting surface to True generates sample points from the
-        hypersphere surface irregardless of what the value of min_magnitude is.
+        hypersphere surface regardless of what the value of min_magnitude is.
         Default: False
 
     """
