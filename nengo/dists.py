@@ -169,7 +169,7 @@ class UniformHypersphere(Distribution):
         self.surface = surface
 
     def __repr__(self):
-        return "UniformHypersphere(min_magnitude=%f%s)" % (
+        return "UniformHypersphere(min_magnitude=%r%s)" % (
             self.min_magnitude, ", surface=True" if self.surface else "")
 
     def sample(self, n, d, rng=np.random):
