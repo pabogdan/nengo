@@ -2,25 +2,27 @@ from __future__ import absolute_import
 
 import numpy as np
 
-import matplotlib.pyplot as plt
-
-import nengo
-
 from nengo.utils.numpy import array
 
 
 def generate_functions(function, n, *arg_dists):
     """
     Parameters:
+    -----------
 
     function: callable,
-       the function to be used as a basis, ex. gaussian
+       a real-valued function to be used as a basis, ex. gaussian
 
     n: int,
        number of functions to generate
 
     arg_dists: instances of nengo distributions
-       distributions to sample arguments from, ex. mean of a gaussian function
+       distributions to sample arguments (eg. mean of a gaussian function) from
+
+    Returns:
+    --------
+    a list of callable functions that have some parameters fixed
+    based on the distributions given
     """
 
     # get argument samples to make different functions
@@ -31,7 +33,8 @@ def generate_functions(function, n, *arg_dists):
         def func(points, i=i):
             args = [points]
             args.extend(arg_samples[i])
-            return function(*args)
+            # since function outputs are 1D, flatten
+            return function(*args).flatten()
         functions.append(func)
 
     return functions
@@ -75,11 +78,10 @@ def function_values(functions, points):
 
     Returns:
     --------
-    ndarray of shape (n_points * output_dim, n_functions).
-    output_dim is the dimension of the range of the functions"""
+    ndarray of shape (n_points, n_functions).
+    """
 
-    range_dim = functions[0](points[0]).shape[0]
-    values = np.empty((len(points) * range_dim, len(functions)))
+    values = np.empty((len(points), len(functions)))
     for i, function in enumerate(functions):
         values[:, i] = function(points).flatten()
     return values
@@ -90,18 +92,9 @@ class Function_Space(object):
 
     Parameters:
     -----------
-    fn: callable,
-      The function that will be used for tiling the space.
-      Must return an ndarray of shape (n_points, range_dim)
-
-    dist_args: list of nengo Distributions
-       The distributions to sample functions from.
 
     domain_dim: int,
-      The dimension of the domain of ``fn``.
-
-    n_functions: int, optional
-      Number of functions used to tile the space.
+      The dimension of the domain on which the function space is defined
 
     n_basis: int, optional
       Number of orthonormal basis functions to use
@@ -110,22 +103,13 @@ class Function_Space(object):
        the discretization factor (used in spacing the domain points)
 
     radius: float, optional
-       2 * radius is the length of a side of the hypercube
+       2 * radius is the length of a side of the hypercube of the domain
     """
 
-    def __init__(self, fn, domain_dim, dist_args, n_functions=200, n_basis=20,
-                 d=0.001, radius=1):
+    def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
 
         self.domain = uniform_cube(domain_dim, radius, d)
-        self.fns = function_values(generate_functions(fn, n_functions,
-                                                      *dist_args),
-                                   self.domain)
-
-        self.dx = d ** self.domain.shape[1]  # volume element for integration
         self.n_basis = n_basis
-
-    def get_basis(self):
-        raise NotImplementedError("Must be implemented by subclasses")
 
     def reconstruct(self, coefficients):
         raise NotImplementedError("Must be implemented by subclasses")
@@ -137,15 +121,38 @@ class Function_Space(object):
         raise NotImplementedError("Must be implemented by subclasses")
 
 
-class Gen_Function_Space(Function_Space):
-    """A function space subclass where the basis is derived from the SVD"""
+class SVD_Function_Space(Function_Space):
+    """A function space subclass where the basis is derived from the SVD.
+
+    A base function is used to tile the space with a bunch of functions. The
+    SVD is then used to compute a basis from those functions.
+
+    Parameters:
+    -----------
+
+    fn: callable,
+      The function that will be used for tiling the space.
+
+    dist_args: list of nengo Distributions
+       The distributions to sample functions from.
+
+    n_functions: int, optional
+      Number of functions used to tile the space.
+
+    """
 
     def __init__(self, fn, domain_dim, dist_args, n_functions=200, n_basis=20,
                  d=0.001, radius=1):
 
-        super(Gen_Function_Space, self).__init__(fn, domain_dim, dist_args,
-                                                 n_functions, n_basis,
-                                                 d, radius)
+        super(SVD_Function_Space, self).__init__(domain_dim, n_basis, d,
+                                                 radius)
+
+        self.fns = function_values(generate_functions(fn, n_functions,
+                                                      *dist_args),
+                                   self.domain)
+
+        self.dx = d ** self.domain.shape[1]  # volume element for integration
+        self.n_basis = n_basis
 
         # basis must be orthonormal
         self.U, self.S, V = np.linalg.svd(self.fns)
@@ -172,21 +179,17 @@ class Gen_Function_Space(Function_Space):
     def signal_coeffs(self, signal):
         """Project a given signal onto basis to get signal coefficients.
            Size returned is (n_signals, n_basis)"""
-        signal = array(signal, min_dims=2)
+        print 'signal', signal.T.shape,
+        print 'basis', self.basis.shape
         return np.dot(signal.T, self.basis) * self.dx
 
 
 class Fourier(Function_Space):
-    """A function space subclass that uses the Fourier basis.
+    """A function space subclass that uses the Fourier basis."""
 
-    Note: assumes real-valued data only"""
+    def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
 
-    def __init__(self, fn, domain_dim, dist_args, n_functions=200, n_basis=20,
-                 d=0.001, radius=1):
-
-        super(Fourier, self).__init__(fn, domain_dim, dist_args,
-                                      n_functions, n_basis,
-                                      d, radius)
+        super(Fourier, self).__init__(domain_dim, n_basis, d, radius)
 
     def reconstruct(self, coefficients):
         """inverse fourier transform"""
@@ -198,6 +201,5 @@ class Fourier(Function_Space):
 
     def signal_coeffs(self, signal):
         """Apply the Discrete fourier transform to the signal"""
-        signal = array(signal, min_dims=2)
-        # throw out higher frequence coefficients
-        return np.fft.rfft(signal.T)[:, :self.n_basis]
+        # throw out higher frequency coefficients
+        return np.fft.rfft(signal.T)[:self.n_basis]

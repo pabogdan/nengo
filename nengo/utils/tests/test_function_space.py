@@ -1,10 +1,9 @@
 import numpy as np
-import pytest
+
+import nengo
 
 from nengo.utils.function_space import *
 from nengo.utils.distributions import Uniform
-from nengo.utils.numpy import array
-
 
 sigma = 0.2
 
@@ -13,33 +12,22 @@ def gaussian(points, center):
     return np.exp(-(points - center)**2 / (2 * sigma ** 2))
 
 
-def gaussian_2D(points, center1, center2):
-    """Returns a gaussian valued function in each dimension (not a multivariate
-    guassian"""
-    return np.array([gaussian(points, center1),
-                     gaussian(points, center2)]).flatten()
-
-
-@pytest.mark.parametrize("range_dim", [1, 2])
-def test_function_repr(Simulator, nl, plt, range_dim):
+def test_function_repr(Simulator, nl, plt):
 
     # parameters
-    n_neurons = 2000 * range_dim  # number of neurons
+    n_neurons = 2000  # number of neurons
     domain_dim = 1
-    radius = 1
+    dist_args = [Uniform(-1, 1)]
+    base_func = gaussian
 
-    if range_dim == 1:
-        dist_args = [Uniform(-1, 1)]
-        base_func = gaussian
-    elif range_dim == 2:
-        base_func = gaussian_2D
-        dist_args = [Uniform(-1, 1), Uniform(-1, 1)]
-
-    FS = Gen_Function_Space(base_func, domain_dim, dist_args,
+    # function space object
+    FS = SVD_Function_Space(base_func, domain_dim, dist_args,
                             n_functions=n_neurons, n_basis=20)
 
     # test input is a gaussian bumps function
+    # generate a bunch of gaussian functions
     gaussians = generate_functions(base_func, 4, *dist_args)
+    # evaluate them on the domain and add up
     input_func = np.sum([func(FS.domain) for func in gaussians], axis=0)
 
     # evaluation points are gaussian bumps functions
@@ -48,11 +36,11 @@ def test_function_repr(Simulator, nl, plt, range_dim):
     for _ in range(n_eval_points):
         gaussians = generate_functions(base_func, 4, *dist_args)
         funcs.append(np.sum([func(FS.domain)
-                             for func in gaussians], axis=0).flatten())
+                             for func in gaussians], axis=0))
     eval_points = FS.signal_coeffs(np.array(funcs).T)
 
     # vector space coefficients
-    signal_coeffs = FS.signal_coeffs(input_func).flatten()
+    signal_coeffs = FS.signal_coeffs(input_func)
     encoders = FS.encoder_coeffs()
 
     f_radius = np.linalg.norm(signal_coeffs)  # radius to use for ensemble
@@ -70,50 +58,32 @@ def test_function_repr(Simulator, nl, plt, range_dim):
     sim = Simulator(model)
     sim.run(6)
 
-    reconstruction = FS.reconstruct(sim.data[probe_f][400]).flatten()
+    reconstruction = FS.reconstruct(sim.data[probe_f][400])
     true_f = input_func.flatten()
 
-    plt.saveas = "func_repr_range_dim_%s.pdf" % range_dim
+    plt.saveas = "func_repr.pdf"
 
-    if range_dim == 1:
-        plt.plot(FS.domain, reconstruction, label='model_f')
-        plt.plot(FS.domain, true_f, label='true_f')
-        plt.legend(loc='best')
-    elif range_dim == 2:
-        plt.plot(FS.domain, reconstruction[:len(FS.domain)], label='model_f')
-        plt.plot(FS.domain, true_f[:len(FS.domain)], label='true_f')
-        plt.plot(FS.domain, reconstruction[len(FS.domain):], label='model_f')
-        plt.plot(FS.domain, true_f[len(FS.domain):], label='true_f')
-        plt.legend(loc='best')
+    plt.plot(FS.domain, reconstruction, label='model_f')
+    plt.plot(FS.domain, true_f, label='true_f')
+    plt.legend(loc='best')
 
-    assert np.allclose(true_f, reconstruction, atol=0.3)
-
-
-def test_function_gen_eval(plt):
-    values = function_values(generate_functions(gaussian, 20, Uniform(-1, 1)),
-                             uniform_cube(1, 1, 0.001))
-    plt.plot(function_values(generate_functions(gaussian, 20, Uniform(-1, 1)),
-                             uniform_cube(1, 1, 0.001)),
-             label='function_values')
-
-
-def test_uniform_cube():
-    points = uniform_cube(2, 1, 0.1)
-    plt.scatter(points[0, :], points[1, :], label='points')
+    assert np.allclose(true_f, reconstruction, atol=0.2)
 
 
 def test_fourier_basis(plt):
+    """Testing fourier basis, not in neurons"""
+
     # parameters
-    n_neurons = 100  # number of neurons
     domain_dim = 1
-    range_dim = 1
-    radius = 1
 
-    FS = Fourier(gaussian, domain_dim, [Uniform(-1, 1)],
-                 n_functions=n_neurons)
+    FS = Fourier(domain_dim)
 
-    true = FS.fns[:, 10]
-    model = FS.reconstruct(FS.signal_coeffs(FS.fns[:, 10])).flatten()
+    # test input is a gaussian bumps function
+    # generate a bunch of gaussian functions
+    gaussians = generate_functions(gaussian, 4, Uniform(-1, 1))
+    # evaluate them on the domain and add up
+    true = np.sum([func(FS.domain) for func in gaussians], axis=0)
+    model = FS.reconstruct(FS.signal_coeffs(true))
 
     plt.figure('Testing Fourier Basis')
     plt.plot(FS.domain, true, label='Function')
@@ -121,5 +91,18 @@ def test_fourier_basis(plt):
     plt.legend(loc='best')
     plt.savefig('utils.test_function_space.test_fourier_basis.pdf')
 
-    # crop because of Gibbs phenomenon
+    # clip ends because of Gibbs phenomenon
     assert np.allclose(true[200:-200], model[200:-200], atol=0.2)
+
+
+def function_gen_eval(plt):
+    """Plot the output of function generation to check if it works"""
+    plt.plot(function_values(generate_functions(gaussian, 20, Uniform(-1, 1)),
+                             uniform_cube(1, 1, 0.001)),
+             label='function_values')
+
+
+def uniform_cube():
+    """Plot the output of domain point generation to check if it works"""
+    points = uniform_cube(2, 1, 0.1)
+    plt.scatter(points[0, :], points[1, :], label='points')
