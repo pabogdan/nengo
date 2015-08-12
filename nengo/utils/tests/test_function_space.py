@@ -5,12 +5,6 @@ import nengo
 from nengo.utils.function_space import *
 from nengo.utils.distributions import Uniform
 
-sigma = 0.2
-
-
-def gaussian(points, center):
-    return np.exp(-(points - center)**2 / (2 * sigma ** 2))
-
 
 def test_function_repr(Simulator, nl, plt):
 
@@ -70,29 +64,29 @@ def test_function_repr(Simulator, nl, plt):
     assert np.allclose(true_f, reconstruction, atol=0.2)
 
 
-def test_fourier_basis(plt):
-    """Testing fourier basis, not in neurons"""
+# def test_fourier_basis(plt):
+#     """Testing fourier basis, not in neurons"""
 
-    # parameters
-    domain_dim = 1
+#     # parameters
+#     domain_dim = 1
 
-    FS = Fourier(domain_dim)
+#     FS = Fourier(domain_dim)
 
-    # test input is a gaussian bumps function
-    # generate a bunch of gaussian functions
-    gaussians = generate_functions(gaussian, 4, Uniform(-1, 1))
-    # evaluate them on the domain and add up
-    true = np.sum([func(FS.domain) for func in gaussians], axis=0)
-    model = FS.reconstruct(FS.signal_coeffs(true))
+#     # test input is a gaussian bumps function
+#     # generate a bunch of gaussian functions
+#     gaussians = generate_functions(gaussian, 4, Uniform(-1, 1))
+#     # evaluate them on the domain and add up
+#     true = np.sum([func(FS.domain) for func in gaussians], axis=0)
+#     model = FS.reconstruct(FS.signal_coeffs(true))
 
-    plt.figure('Testing Fourier Basis')
-    plt.plot(FS.domain, true, label='Function')
-    plt.plot(FS.domain, model, label='reconstruction')
-    plt.legend(loc='best')
-    plt.savefig('utils.test_function_space.test_fourier_basis.pdf')
+#     plt.figure('Testing Fourier Basis')
+#     plt.plot(FS.domain, true, label='Function')
+#     plt.plot(FS.domain, model, label='reconstruction')
+#     plt.legend(loc='best')
+#     plt.savefig('utils.test_function_space.test_fourier_basis.pdf')
 
-    # clip ends because of Gibbs phenomenon
-    assert np.allclose(true[200:-200], model[200:-200], atol=0.2)
+#     # clip ends because of Gibbs phenomenon
+#     assert np.allclose(true[200:-200], model[200:-200], atol=0.2)
 
 
 def function_gen_eval(plt):
