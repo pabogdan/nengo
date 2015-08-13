@@ -20,18 +20,11 @@ def test_function_repr(Simulator, nl, plt):
 
     # test input is a gaussian bumps function
     # generate a bunch of gaussian functions
-    gaussians = generate_functions(base_func, 4, *dist_args)
-    # evaluate them on the domain and add up
-    input_func = np.sum([func(FS.domain) for func in gaussians], axis=0)
+    input_func = FS.sample_comb(4, dist_args)
 
     # evaluation points are gaussian bumps functions
     n_eval_points = 400
-    funcs = []
-    for _ in range(n_eval_points):
-        gaussians = generate_functions(base_func, 4, *dist_args)
-        funcs.append(np.sum([func(FS.domain)
-                             for func in gaussians], axis=0))
-    eval_points = FS.signal_coeffs(np.array(funcs).T)
+    eval_points = FS.sample_eval_points(n_eval_points, 4, dist_args)
 
     # vector space coefficients
     signal_coeffs = FS.signal_coeffs(input_func)

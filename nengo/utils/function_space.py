@@ -3,7 +3,10 @@ from __future__ import absolute_import
 import numpy as np
 
 from nengo.utils.numpy import array
+from nengo.utils.distributions import Uniform
 
+
+"""TODO: -Finish fourier class"""
 
 def generate_functions(function, n, *arg_dists):
     """
@@ -104,12 +107,20 @@ class Function_Space(object):
 
     radius: float, optional
        2 * radius is the length of a side of the hypercube of the domain
+
+    n_functions: int, optional
+      Number of functions used to tile the space.
     """
 
-    def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
+    def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1,
+                 n_functions=200):
 
         self.domain = uniform_cube(domain_dim, radius, d)
         self.n_basis = n_basis
+        self.n_functions = n_functions
+
+    def get_basis(self):
+        raise NotImplementedError("Must be implemented by subclasses")
 
     def reconstruct(self, coefficients):
         raise NotImplementedError("Must be implemented by subclasses")
@@ -119,6 +130,10 @@ class Function_Space(object):
 
     def signal_coeffs(self, signal):
         raise NotImplementedError("Must be implemented by subclasses")
+
+
+def gaussian(points, center):
+    return np.exp(-(points - center)**2 / (2 * 0.2 ** 2))
 
 
 class SVD_Function_Space(Function_Space):
@@ -136,16 +151,17 @@ class SVD_Function_Space(Function_Space):
     dist_args: list of nengo Distributions
        The distributions to sample functions from.
 
-    n_functions: int, optional
-      Number of functions used to tile the space.
-
     """
 
-    def __init__(self, fn, domain_dim, dist_args, n_functions=200, n_basis=20,
-                 d=0.001, radius=1):
+    def __init__(self, fn=gaussian, domain_dim=1, dist_args=[Uniform(-1, 1)],
+                 n_functions=200, n_basis=20, d=0.001, radius=1):
 
         super(SVD_Function_Space, self).__init__(domain_dim, n_basis, d,
-                                                 radius)
+                                                 radius, n_functions)
+
+        self.n_functions = n_functions
+
+        self.base_func = fn
 
         self.fns = function_values(generate_functions(fn, n_functions,
                                                       *dist_args),
@@ -179,27 +195,41 @@ class SVD_Function_Space(Function_Space):
     def signal_coeffs(self, signal):
         """Project a given signal onto basis to get signal coefficients.
            Size returned is (n_signals, n_basis)"""
-        print 'signal', signal.T.shape,
-        print 'basis', self.basis.shape
         return np.dot(signal.T, self.basis) * self.dx
 
+    def sample_comb(self, k, dist_args):
+        """Create a sample linear combination by summing k random variations
+        of the initial function used for tiling"""
+        functions = generate_functions(self.base_func, 4, *dist_args)
+        # evaluate them on the domain and add up
+        sample_input = np.sum([func(self.domain) for func in functions],
+                              axis=0)
+        return sample_input
 
-class Fourier(Function_Space):
-    """A function space subclass that uses the Fourier basis."""
+    def sample_eval_points(self, n_eval_points, k, dist_args):
+        """Create some evalutations points as linear combinations of k
+        random variations of the initial function used for tiling"""
+        funcs = []
+        for _ in range(n_eval_points):
+            funcs.append(self.sample_comb(k, dist_args))
+        return self.signal_coeffs(np.array(funcs).T)
 
-    def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
+# class Fourier(Function_Space):
+#     """A function space subclass that uses the Fourier basis."""
 
-        super(Fourier, self).__init__(domain_dim, n_basis, d, radius)
+#     def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
 
-    def reconstruct(self, coefficients):
-        """inverse fourier transform"""
-        return np.fft.irfft(coefficients, len(self.domain))
+#         super(Fourier, self).__init__(domain_dim, n_basis, d, radius)
 
-    def encoder_coeffs(self):
-        """Apply the fourier transform to the encoder functions."""
-        return self.signal_coeffs(self.fns)
+#     def reconstruct(self, coefficients):
+#         """inverse fourier transform"""
+#         return np.fft.irfft(coefficients, len(self.domain))
 
-    def signal_coeffs(self, signal):
-        """Apply the Discrete fourier transform to the signal"""
-        # throw out higher frequency coefficients
-        return np.fft.rfft(signal.T)[:self.n_basis]
+#     def encoder_coeffs(self):
+#         """Apply the fourier transform to the encoder functions."""
+#         return self.signal_coeffs(self.fns)
+
+#     def signal_coeffs(self, signal):
+#         """Apply the Discrete fourier transform to the signal"""
+#         # throw out higher frequency coefficients
+#         return np.fft.rfft(signal.T)[:self.n_basis]
