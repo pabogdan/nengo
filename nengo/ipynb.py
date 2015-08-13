@@ -29,8 +29,8 @@ import nengo.utils.progress
 
 
 def load_ipython_extension(ipython):
-    IPythonProgressWidget.load_frontend(ipython)
-    if rc.get('progress', 'progress_bar') == 'auto':
+    if has_ipynb_widgets() and rc.get('progress', 'progress_bar') == 'auto':
+        IPythonProgressWidget.load_frontend(ipython)
         rc.set('progress', 'progress_bar', '.'.join((
             __name__, IPython2ProgressBar.__name__)))
 
