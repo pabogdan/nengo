@@ -10,7 +10,10 @@ Note
 This IPython extension cannot be unloaded.
 """
 
-from nengo.utils.ipython import get_ipython, has_ipynb_widgets
+from nengo.utils.ipython import has_ipynb_widgets
+
+from nengo.rc import rc
+import nengo.utils.progress
 
 if has_ipynb_widgets():
     import IPython
@@ -23,9 +26,6 @@ if has_ipynb_widgets():
     from IPython.display import display
 else:
     DOMWidget = object
-
-from nengo.rc import rc
-import nengo.utils.progress
 
 
 def load_ipython_extension(ipython):
