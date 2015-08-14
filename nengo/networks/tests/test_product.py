@@ -43,10 +43,10 @@ def test_sine_waves(Simulator, plt, seed):
 @pytest.mark.slow
 def test_product_benchmark(analytics, seed):
     n_trials = 50
-    hc = HilbertCurve(n=4)  # Increase n to cover the input space more densly
+    hc = HilbertCurve(n=4)  # Increase n to cover the input space more densely
     duration = 5.           # Simulation duration (s)
-    wait_duration = 0.5     # Duration (s) to wait in the beginning to have a
-                            # stable representation
+    # Duration (s) to wait at the beginning to have a stable representation
+    wait_duration = 0.5
     n_neurons = 100
     n_eval_points = 1000
 
@@ -69,7 +69,8 @@ def test_product_benchmark(analytics, seed):
             nengo.Connection(stimulus[1], product_net.B)
             probe_test = nengo.Probe(product_net.output)
 
-            ens_direct = nengo.Ensemble(1, dimensions=2, neuron_type=nengo.Direct())
+            ens_direct = nengo.Ensemble(
+                1, dimensions=2, neuron_type=nengo.Direct())
             result_direct = nengo.Node(size_in=1)
             nengo.Connection(stimulus, ens_direct)
             nengo.Connection(
