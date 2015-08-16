@@ -1,41 +1,31 @@
 import nengo
 from nengo.utils.function_space import Function_Space
-from nengo.utils.network import with_self
 
 
-class FS_Network(nengo.Network):
-    """ A function space network.
+def FS_Ensemble(FS, net=None, **ens_kwargs):
+    """A function space ensemble"""
 
-    This network is meant to simplify working with function spaces, and
-    essentially encapsulates an ensemble.  A function space object, which
-    defines the functions space (see utils/function_space.py), is required.
-    This object can also be used to compute appropriate evalutation points and
-    the radius for the ensemble.
-    """
+    if not isinstance(FS, Function_Space):
+        raise ValueError("FS argument must be an object of type"
+                         " ``Function_Space``")
 
-    def __init__(self, FS, **ens_kwargs):
-        if isinstance(FS, Function_Space):
-               self.FS = FS
-        else:
-            raise ValueError("FS argument must be an object of type"
-                                " ``Function_Space``")
+    # define these to ignore time argument
+    def output1(t, x):
+        return FS.signal_coeffs(x)
 
-        with self:
-            self.FS_ens = nengo.Ensemble(dimensions=FS.n_basis,
-                                         n_neurons=FS.n_functions,
-                                         encoders=FS.encoder_coeffs(),
-                                         **ens_kwargs)
+    def output2(t, x):
+        return FS.reconstruct(x)
 
-    @with_self
-    def add_input_node(self, node_output):
-        self.input_node = nengo.Node(output=self.FS.signal_coeffs(node_output))
-        nengo.Connection(self.input_node, self.FS_ens)
-
-    def probe(self, synapse=0.1):
-        self.probe = nengo.Probe(self.FS_ens, synapse=synapse)
-
-    def reconstruct(self, sim, t):
-        return self.FS.reconstruct(sim.data[self.probe][round(t/sim.dt)])
-
-    def connect_to(self, nengo_object):
-        nengo.Connection(self.FS_ens, nengo_object)
+    if net is None:
+        net = nengo.Network(label="Function Space")
+    with net:
+        net.FS_input = nengo.Node(size_in=FS.n_points,
+                                  output=output1, label='FS_input')
+        net.FS_ens = nengo.Ensemble(n_neurons=FS.n_functions,
+                                    dimensions=FS.n_basis, **ens_kwargs)
+        nengo.Connection(net.FS_input, net.FS_ens, synapse=None)
+        net.FS_output = nengo.Node(size_in=FS.n_basis,
+                                   size_out=FS.n_points, output=output2,
+                                   label='FS_output')
+        nengo.Connection(net.FS_ens, net.FS_output, synapse=None)
+    return net

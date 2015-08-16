@@ -6,8 +6,6 @@ from nengo.utils.numpy import array
 from nengo.utils.distributions import Uniform
 
 
-"""TODO: -Finish fourier class"""
-
 def generate_functions(function, n, *arg_dists):
     """
     Parameters:
@@ -160,12 +158,11 @@ class SVD_Function_Space(Function_Space):
                                                  radius, n_functions)
 
         self.n_functions = n_functions
-
         self.base_func = fn
-
         self.fns = function_values(generate_functions(fn, n_functions,
                                                       *dist_args),
                                    self.domain)
+        self.n_points = len(self.fns[0])
 
         self.dx = d ** self.domain.shape[1]  # volume element for integration
         self.n_basis = n_basis
@@ -214,12 +211,15 @@ class SVD_Function_Space(Function_Space):
             funcs.append(self.sample_comb(k, dist_args))
         return self.signal_coeffs(np.array(funcs).T)
 
+
 # class Fourier(Function_Space):
-#     """A function space subclass that uses the Fourier basis."""
+#     """TODO
+#       A function space subclass that uses the Fourier basis."""
 
 #     def __init__(self, domain_dim, n_basis=20, d=0.001, radius=1):
 
 #         super(Fourier, self).__init__(domain_dim, n_basis, d, radius)
+#         self.n_functions = len(self.domain)
 
 #     def reconstruct(self, coefficients):
 #         """inverse fourier transform"""
