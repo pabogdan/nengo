@@ -5,13 +5,14 @@ from nengo.networks import EnsembleArray
 
 
 def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0, gate_gain=10,
-                     difference_gain=1.0, reset_gain=3, net=None):
+                     difference_gain=1.0, reset_gain=3, recurrent_synapse=0.1,
+                     difference_synapse=None, net=None):
     """Stores a given vector in memory, with input controlled by a gate."""
     if net is None:
         net = nengo.Network(label="Input Gated Memory")
 
     mem_config = nengo.Config(nengo.Connection)
-    mem_config[nengo.Connection].synapse = nengo.Lowpass(0.1)
+    mem_config[nengo.Connection].synapse = nengo.Lowpass(recurrent_synapse)
 
     n_total_neurons = n_neurons * dimensions
 
@@ -31,7 +32,8 @@ def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0, gate_gain=10,
         # feed difference into integrator
         with mem_config:
             nengo.Connection(net.diff.output, net.mem.input,
-                             transform=difference_gain)
+                             transform=difference_gain,
+                             synapse=difference_synapse)
 
         # gate difference (if gate==0, update stored value,
         # otherwise retain stored value)
