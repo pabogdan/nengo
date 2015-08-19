@@ -22,8 +22,8 @@ class Compare(Module):
         The actual input magnitude will be this value times sqrt(2)
     """
     def __init__(self, dimensions, vocab=None, neurons_per_multiply=200,
-                 output_scaling=1.0, input_magnitude=1.0,
-                 label=None, seed=None, add_to_container=None):
+                input_magnitude=1.0, label=None, seed=None,
+                add_to_container=None):
         super(Compare, self).__init__(label, seed, add_to_container)
         if vocab is None:
             # use the default vocab for this number of dimensions
@@ -51,5 +51,5 @@ class Compare(Module):
                              self.product.B, synapse=None)
             nengo.Connection(self.product.output,
                              self.output,
-                             transform=self.output_scaling *
+                             transform=
                              np.ones((1, self.dimensions)))
