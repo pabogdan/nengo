@@ -50,11 +50,6 @@ class Compare(Module):
                              self.product.A, synapse=None)
             nengo.Connection(self.inputB,
                              self.product.B, synapse=None)
-
-    def on_add(self, spa):
-        Module.on_add(self, spa)
-
-        with self:
             nengo.Connection(self.product.output,
                              self.output,
                              transform=self.output_scaling *
