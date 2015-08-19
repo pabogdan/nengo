@@ -55,7 +55,7 @@ class Compare(Module):
         Module.on_add(self, spa)
 
         with self:
-            nengo.Connection(self.compare.product,
+            nengo.Connection(self.product.output,
                              self.output,
                              transform=self.output_scaling *
                              np.ones((1, self.dimensions)))
