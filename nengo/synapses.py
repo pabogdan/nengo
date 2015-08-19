@@ -78,16 +78,21 @@ class LinearFilter(Synapse):
         den = den[1:]  # drop first element (equal to 1)
 
         if len(num) == 1 and len(den) == 0:
-            return functools.partial(
+            f = functools.partial(
                 LinearFilter.no_den_step, output=output, b=num[0])
         elif len(num) == 1 and len(den) == 1:
-            return functools.partial(
+            f = functools.partial(
                 LinearFilter.simple_step, output=output, a=den[0], b=num[0])
         else:
             x = collections.deque(maxlen=len(num))
             y = collections.deque(maxlen=len(den))
-            return functools.partial(LinearFilter.general_step,
-                                     output=output, x=x, y=y, num=num, den=den)
+            f = functools.partial(LinearFilter.general_step,
+                                  output=output, x=x, y=y, num=num, den=den)
+
+        # keep 'num' and 'den' in case backends want to use them
+        f.num = num
+        f.den = den
+        return f
 
 
 class Lowpass(LinearFilter):
@@ -108,8 +113,10 @@ class Lowpass(LinearFilter):
     def make_step(self, dt, output):
         # if tau < 0.03 * dt, exp(-dt / tau) < 1e-14, so just make it zero
         if self.tau <= .03 * dt:
-            return functools.partial(
+            f = functools.partial(
                 LinearFilter.no_den_step, output=output, b=1.)
+            f.num, f.den = np.array([1.]), np.array([])  # for backends
+            return f
         return super(Lowpass, self).make_step(dt, output)
 
 
@@ -142,8 +149,10 @@ class Alpha(LinearFilter):
     def make_step(self, dt, output):
         # if tau < 0.03 * dt, exp(-dt / tau) < 1e-14, so just make it zero
         if self.tau <= .03 * dt:
-            return functools.partial(
+            f = functools.partial(
                 LinearFilter.no_den_step, output=output, b=1.)
+            f.num, f.den = np.array([1.]), np.array([])  # for backends
+            return f
         return super(Alpha, self).make_step(dt, output)
 
 
@@ -170,13 +179,13 @@ class Triangle(Synapse):
         n0, ndiff = num[0], num[-1]
         x = collections.deque(maxlen=n_taps)
 
-        def step(signal, output=output, x=x, num=num):
+        def step_triangle(signal):
             output[...] += n0 * signal
             for xk in x:
-                output -= xk
+                output[...] -= xk
             x.appendleft(ndiff * signal)
 
-        return step
+        return step_triangle
 
 
 def filt(signal, synapse, dt, axis=0, x0=None, copy=True):

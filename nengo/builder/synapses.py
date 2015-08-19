@@ -24,7 +24,7 @@ class SimSynapse(Operator):
         output = signals[self.output]
         step_f = self.synapse.make_step(dt, output)
 
-        def step_simsynapse(input=input):
+        def step_simsynapse():
             step_f(input)
 
         return step_simsynapse
