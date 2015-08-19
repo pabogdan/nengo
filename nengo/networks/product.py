@@ -2,7 +2,6 @@ import numpy as np
 
 import nengo
 from nengo.networks.ensemblearray import EnsembleArray
-from nengo.utils.stdlib import nested
 
 
 def Product(n_neurons, dimensions, input_magnitude=1, net=None):
