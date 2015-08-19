@@ -11,8 +11,8 @@ def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0, gate_gain=10,
     if net is None:
         net = nengo.Network(label="Input Gated Memory")
 
-    if difference_synapse is None
-        difference_synapse = 0.1
+    if difference_synapse is None:
+        difference_synapse = recurrent_synapse
     mem_config = nengo.Config(nengo.Connection)
     mem_config[nengo.Connection].synapse = nengo.Lowpass(recurrent_synapse)
 
@@ -35,7 +35,7 @@ def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0, gate_gain=10,
         with mem_config:
             nengo.Connection(net.diff.output, net.mem.input,
                              transform=difference_gain,
-                             synapse=Nengo.Lowpass(difference_synapse))
+                             synapse=nengo.Lowpass(difference_synapse))
 
         # gate difference (if gate==0, update stored value,
         # otherwise retain stored value)
