@@ -1,7 +1,6 @@
 import numpy as np
 
 import nengo
-from nengo.dists import Choice
 from nengo.spa.module import Module
 
 
@@ -19,8 +18,8 @@ class Compare(Module):
     output_scaling : float
         Multiplier on the dot product result
     input_magnitude : float
-        Effective input_magnitude for the multiplication.  The actual input_magnitude will
-        be this value times sqrt(2)
+        Effective input magnitude for the multiplication.
+        The actual input magnitude will be this value times sqrt(2)
     """
     def __init__(self, dimensions, vocab=None, neurons_per_multiply=200,
                  output_scaling=1.0, input_magnitude=1.0,
