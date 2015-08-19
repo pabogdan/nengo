@@ -18,14 +18,12 @@ class Compare(Module):
         Number of neurons to use in each product computation
     output_scaling : float
         Multiplier on the dot product result
-    radius : float
-        Effective radius for the multiplication.  The actual radius will
+    input_magnitude : float
+        Effective input_magnitude for the multiplication.  The actual input_magnitude will
         be this value times sqrt(2)
-    direct : boolean
-        Whether or not to use direct mode for the neurons
     """
     def __init__(self, dimensions, vocab=None, neurons_per_multiply=200,
-                 output_scaling=1.0, radius=1.0, direct=False,
+                 output_scaling=1.0, input_magnitude=1.0,
                  label=None, seed=None, add_to_container=None):
         super(Compare, self).__init__(label, seed, add_to_container)
         if vocab is None:
@@ -36,12 +34,9 @@ class Compare(Module):
         self.dimensions = dimensions
 
         with self:
-            self.compare = nengo.networks.EnsembleArray(
-                neurons_per_multiply, dimensions, ens_dimensions=2,
-                neuron_type=nengo.Direct() if direct else nengo.LIF(),
-                encoders=Choice([[1, 1], [1, -1], [-1, 1], [-1, -1]]),
-                radius=radius * np.sqrt(2),
-                label='compare')
+            self.product = nengo.networks.Product(
+                neurons_per_multiply, dimensions,
+                input_magnitude=input_magnitude)
 
             self.inputA = nengo.Node(size_in=dimensions, label='inputA')
             self.inputB = nengo.Node(size_in=dimensions, label='inputB')
@@ -52,10 +47,9 @@ class Compare(Module):
 
         with self:
             nengo.Connection(self.inputA,
-                             self.compare.input[::2], synapse=None)
+                             self.product.A, synapse=None)
             nengo.Connection(self.inputB,
-                             self.compare.input[1::2], synapse=None)
-            self.compare.add_output('product', lambda x: x[0] * x[1])
+                             self.product.B, synapse=None)
 
     def on_add(self, spa):
         Module.on_add(self, spa)
