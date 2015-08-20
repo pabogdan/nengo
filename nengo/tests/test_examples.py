@@ -1,7 +1,10 @@
-from glob import glob
 import os
 
 import pytest
+import _pytest.capture
+
+from nengo.utils.paths import examples_dir
+from nengo.utils.stdlib import execfile
 
 # Monkeypatch _pytest.capture.DontReadFromInput
 #  If we don't do this, importing IPython will choke as it reads the current
@@ -9,35 +12,46 @@ import pytest
 #  DontReadFromInput as sys.stdin to capture output.
 #  Running with -s option doesn't have this issue, but this monkeypatch
 #  doesn't have any side effects, so it's fine.
-import _pytest.capture
 _pytest.capture.DontReadFromInput.encoding = "utf-8"
-
-from nengo.utils.ipython import export_py, load_notebook
-from nengo.utils.paths import examples_dir
-from nengo.utils.stdlib import execfile
+_pytest.capture.DontReadFromInput.write = lambda: None
+_pytest.capture.DontReadFromInput.flush = lambda: None
 
 
-def pytest_generate_tests(metafunc):
-    examples = glob('%s/*.ipynb' % examples_dir)
+too_slow = ['inhibitory_gating',
+            'izhikevich',
+            'learn_communication_channel',
+            'learn_product',
+            'learn_square',
+            'learn_unsupervised',
+            'lorenz_attractor',
+            'nef_summary',
+            'network_design',
+            'network_design_advanced',
+            'question',
+            'question_control',
+            'question_memory',
+            'spa_parser',
+            'spa_sequence',
+            'spa_sequence_routed']
 
-    # if `--optional` is not set, filter out time-consuming notebooks
-    ignores = [] if metafunc.config.option.optional else [
-        'lorenz_attractor.ipynb', 'spa_sequence_routed.ipynb',
-        'spa_sequence-Class.ipynb', 'spa_sequence-Context.ipynb',
-        'spa_parser.ipynb', 'question_control.ipynb',
-        'learn_communication_channel.ipynb', 'learn_product.ipynb',
-        'learn_unsupervised.ipynb']
-    argvalues = [pytest.mark.skipif(os.path.basename(path) in ignores,
-                                    reason="Time-consuming")(path)
-                 for path in examples]
+all_examples, slow_examples, fast_examples = [], [], []
 
-    if "nb_path" in metafunc.funcargnames:
-        metafunc.parametrize("nb_path", argvalues)
+for subdir, _, files in os.walk(examples_dir):
+    if (os.path.sep + '.') in subdir:
+        continue
+
+    examples = [os.path.join(subdir, os.path.splitext(f)[0]) for f in files
+                if f.endswith('.ipynb')]
+    all_examples.extend(examples)
+    slow_examples.extend([e for e, f in zip(examples, files)
+                          if os.path.splitext(f)[0] in too_slow])
+    fast_examples.extend([e for e, f in zip(examples, files)
+                          if os.path.splitext(f)[0] not in too_slow])
 
 
-@pytest.mark.example
-def test_noexceptions(nb_path, tmpdir, plt):
-    """Ensure that no cells raise an exception."""
+def assert_noexceptions(nb_file, tmpdir, plt):
+    from nengo.utils.ipython import export_py, load_notebook
+    nb_path = os.path.join(examples_dir, "%s.ipynb" % nb_file)
     nb = load_notebook(nb_path)
     pyfile = "%s.py" % (
         tmpdir.join(os.path.splitext(os.path.basename(nb_path))[0]))
@@ -48,16 +62,41 @@ def test_noexceptions(nb_path, tmpdir, plt):
 
 
 @pytest.mark.example
-def test_nooutput(nb_path):
+@pytest.mark.parametrize('nb_file', fast_examples)
+def test_fast_noexceptions(nb_file, tmpdir, plt):
+    """Ensure that no cells raise an exception."""
+    pytest.importorskip("IPython", minversion="1.0")
+    pytest.importorskip("jinja2")
+    assert_noexceptions(nb_file, tmpdir, plt)
+
+
+@pytest.mark.slow
+@pytest.mark.example
+@pytest.mark.parametrize('nb_file', slow_examples)
+def test_slow_noexceptions(nb_file, tmpdir, plt):
+    """Ensure that no cells raise an exception."""
+    pytest.importorskip("IPython", minversion="1.0")
+    pytest.importorskip("jinja2")
+    assert_noexceptions(nb_file, tmpdir, plt)
+
+
+@pytest.mark.example
+@pytest.mark.parametrize('nb_file', all_examples)
+def test_nooutput(nb_file):
     """Ensure that no cells have output."""
-    nb = load_notebook(nb_path)
+    pytest.importorskip("IPython", minversion="1.0")
+    pytest.importorskip("jinja2")
+    from nengo.utils.ipython import load_notebook
 
-    for ws in nb.worksheets:
-        for cell in ws.cells:
+    def check_all(cells):
+        for cell in cells:
             if cell.cell_type == 'code':
-                assert cell.outputs == [], (
-                    "Clear all cell outputs in " + nb_path)
+                assert cell.outputs == [], ("Clear outputs in %s" % nb_path)
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, '-v'])
+    nb_path = os.path.join(examples_dir, "%s.ipynb" % nb_file)
+    nb = load_notebook(nb_path)
+    if nb.nbformat <= 3:
+        for ws in nb.worksheets:
+            check_all(ws.cells)
+    else:
+        check_all(nb.cells)

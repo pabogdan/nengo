@@ -6,9 +6,9 @@ from nengo import spa
 import numpy as np
 
 
-@pytest.mark.optional  # Too slow
-def test_thalamus(Simulator):
-    model = spa.SPA(seed=30)
+@pytest.mark.slow
+def test_thalamus(Simulator, plt, seed):
+    model = spa.SPA(seed=seed)
 
     with model:
         model.vision = spa.Buffer(dimensions=16, neurons_per_dimension=80)
@@ -43,26 +43,35 @@ def test_thalamus(Simulator):
     sim = Simulator(model)
     sim.run(0.5)
 
+    t = sim.trange()
     data = vocab.dot(sim.data[p].T)
     data2 = vocab2.dot(sim.data[p2].T)
 
-    assert 0.8 < data[0, 100] < 1.1  # Action 1
-    assert -0.2 < data2[0, 100] < 0.35
-    assert -0.25 < data[1, 100] < 0.2
-    assert 0.4 < data2[1, 100] < 0.6
-    assert -0.2 < data[0, 299] < 0.2  # Action 2
-    assert 0.6 < data2[0, 299] < 0.95
-    assert 0.8 < data[1, 299] < 1.1
-    assert -0.2 < data2[1, 299] < 0.2
-    assert 0.8 < data[0, 499] < 1.0  # Action 3
-    assert 0.0 < data2[0, 499] < 0.5
-    assert -0.2 < data[1, 499] < 0.2
-    assert 0.4 < data2[1, 499] < 0.7
+    plt.subplot(2, 1, 1)
+    plt.plot(t, data.T)
+    plt.subplot(2, 1, 2)
+    plt.plot(t, data2.T)
+
+    # Action 1
+    assert data[0, t == 0.1] > 0.8
+    assert data[1, t == 0.1] < 0.2
+    assert data2[0, t == 0.1] < 0.35
+    assert data2[1, t == 0.1] > 0.4
+    # Action 2
+    assert data[0, t == 0.3] < 0.2
+    assert data[1, t == 0.3] > 0.8
+    assert data2[0, t == 0.3] > 0.5
+    assert data2[1, t == 0.3] < 0.3
+    # Action 3
+    assert data[0, t == 0.5] > 0.8
+    assert data[1, t == 0.5] < 0.2
+    assert data2[0, t == 0.5] < 0.5
+    assert data2[1, t == 0.5] > 0.4
 
 
-def test_routing(Simulator):
+def test_routing(Simulator, seed, plt):
     D = 3
-    model = spa.SPA(seed=123)
+    model = spa.SPA(seed=seed)
     with model:
         model.ctrl = spa.Buffer(16, label='ctrl')
 
@@ -99,9 +108,11 @@ def test_routing(Simulator):
 
     data = sim.data[buff3_probe]
 
-    valueA = np.mean(data[100:200], axis=0)  # should be [0, 1, 0]
-    valueB = np.mean(data[300:400], axis=0)  # should be [0, 0, 1]
-    valueC = np.mean(data[500:600], axis=0)  # should be [1, 0, 0]
+    plt.plot(sim.trange(), data)
+
+    valueA = np.mean(data[150:200], axis=0)  # should be [0, 1, 0]
+    valueB = np.mean(data[350:400], axis=0)  # should be [0, 0, 1]
+    valueC = np.mean(data[550:600], axis=0)  # should be [1, 0, 0]
 
     assert valueA[0] < 0.2
     assert valueA[1] > 0.8
@@ -116,27 +127,66 @@ def test_routing(Simulator):
     assert valueC[2] < 0.2
 
 
+def test_nondefault_routing(Simulator, seed, plt):
+    D = 3
+    model = spa.SPA(seed=seed)
+    with model:
+        model.ctrl = spa.Buffer(16, label='ctrl')
+
+        def input_func(t):
+            if t < 0.2:
+                return 'A'
+            elif t < 0.4:
+                return 'B'
+            else:
+                return 'C'
+        model.input = spa.Input(ctrl=input_func)
+
+        model.buff1 = spa.Buffer(D, label='buff1')
+        model.buff2 = spa.Buffer(D, label='buff2')
+        model.cmp = spa.Compare(D)
+
+        node1 = nengo.Node([0, 1, 0])
+        node2 = nengo.Node([0, 0, 1])
+
+        nengo.Connection(node1, model.buff1.state.input)
+        nengo.Connection(node2, model.buff2.state.input)
+
+        actions = spa.Actions('dot(ctrl, A) --> cmp_A=buff1, cmp_B=buff1',
+                              'dot(ctrl, B) --> cmp_A=buff1, cmp_B=buff2',
+                              'dot(ctrl, C) --> cmp_A=buff2, cmp_B=buff2',
+                              )
+        model.bg = spa.BasalGanglia(actions)
+        model.thal = spa.Thalamus(model.bg)
+
+        compare_probe = nengo.Probe(model.cmp.output, synapse=0.03)
+
+    sim = Simulator(model)
+    sim.run(0.6)
+
+    similarity = sim.data[compare_probe]
+
+    valueA = np.mean(similarity[150:200], axis=0)  # should be [1]
+    valueB = np.mean(similarity[350:400], axis=0)  # should be [0]
+    valueC = np.mean(similarity[550:600], axis=0)  # should be [1]
+
+    assert valueA > 0.6
+    assert valueB < 0.3
+    assert valueC > 0.6
+
+
 def test_errors():
-    class SPA(spa.SPA):
-        def __init__(self):
-            self.vision = spa.Buffer(dimensions=16)
-            actions = spa.Actions('0.5 --> motor=A')
-            self.bg = spa.BasalGanglia(actions)
-
+    # motor does not exist
     with pytest.raises(NameError):
-        SPA()  # motor does not exist
+        with spa.SPA() as model:
+            model.vision = spa.Buffer(dimensions=16)
+            actions = spa.Actions('0.5 --> motor=A')
+            model.bg = spa.BasalGanglia(actions)
 
-    class SPA(spa.SPA):
-        def __init__(self):
-            self.scalar = spa.Buffer(dimensions=16, subdimensions=1)
-            actions = spa.Actions('0.5 --> scalar=dot(scalar, FOO)')
-            self.bg = spa.BasalGanglia(actions)
-            self.thalamus = spa.Thalamus(self.bg)
-
+    # dot products not implemented
     with pytest.raises(NotImplementedError):
-        SPA()  # dot products not implemented
-
-
-if __name__ == '__main__':
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])
+        with spa.SPA() as model:
+            model.scalar = spa.Buffer(dimensions=16, subdimensions=1)
+            actions = spa.Actions('0.5 --> scalar=dot(scalar, FOO)')
+            model.bg = spa.BasalGanglia(actions)
+            model.thalamus = spa.Thalamus(model.bg)

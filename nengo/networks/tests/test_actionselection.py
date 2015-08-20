@@ -1,11 +1,11 @@
 import numpy as np
-import pytest
 
 import nengo
 
 
-def test_basic(Simulator, plt):
-    bg = nengo.networks.BasalGanglia(dimensions=5, label="BG", seed=79)
+def test_basic(Simulator, plt, seed):
+    bg = nengo.networks.BasalGanglia(
+        dimensions=5, net=nengo.Network(seed=seed))
     with bg:
         input = nengo.Node([0.8, 0.4, 0.4, 0.4, 0.4], label="input")
         nengo.Connection(input, bg.input, synapse=None)
@@ -24,10 +24,10 @@ def test_basic(Simulator, plt):
     assert np.all(output[1:] < -0.8)
 
 
-def test_thalamus(Simulator, plt):
+def test_thalamus(Simulator, plt, seed):
 
-    with nengo.Network(seed=123) as net:
-        bg = nengo.networks.BasalGanglia(dimensions=5, label="BG")
+    with nengo.Network(seed=seed) as net:
+        bg = nengo.networks.BasalGanglia(dimensions=5)
         input = nengo.Node([0.8, 0.4, 0.4, 0.4, 0.4], label="input")
         nengo.Connection(input, bg.input, synapse=None)
 
@@ -47,8 +47,3 @@ def test_thalamus(Simulator, plt):
 
     assert output[0] > 0.8
     assert np.all(output[1:] < 0.01)
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

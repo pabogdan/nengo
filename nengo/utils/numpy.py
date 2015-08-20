@@ -3,11 +3,13 @@ Extra functions to extend the capabilities of Numpy.
 """
 from __future__ import absolute_import
 
-import collections
-
 import numpy as np
 
 maxint = np.iinfo(np.int32).max
+
+
+def compare(a, b):
+    return 0 if a == b else 1 if a > b else -1 if a < b else None
 
 
 def broadcast_shape(shape, length):
@@ -19,7 +21,7 @@ def broadcast_shape(shape, length):
         return shape
 
 
-def array(x, dims=None, min_dims=0, **kwargs):
+def array(x, dims=None, min_dims=0, readonly=False, **kwargs):
     y = np.array(x, **kwargs)
     dims = max(min_dims, y.ndim) if dims is None else dims
 
@@ -31,137 +33,44 @@ def array(x, dims=None, min_dims=0, **kwargs):
         raise ValueError(
             "Input cannot be cast to array with %d dimensions" % dims)
 
+    if readonly:
+        y.flags.writeable = False
+
     return y
 
 
-def filt(x, tau, axis=0, x0=None, copy=True):
-    """First-order causal lowpass filter.
+def expm(A, n_factors=None, normalize=False):
+    """Simple matrix exponential to replace Scipy's matrix exponential
 
-    This performs standard first-order lowpass filtering with transfer function
-                         1
-        T(s) = ----------------------
-               tau_in_seconds * s + 1
-    discretized using the zero-order hold method.
+    This just uses a recursive (factored) version of the Taylor series,
+    and is not as good as Scipy (which uses Pade approximants). The hard
+    part with this implementation is choosing the length of the Taylor
+    series. A longer series is generally needed for a matrix with a larger
+    eigenvalues, but I'm not exactly sure how these relate. I'm using
+    a heuristic based on the matrix norm, since this is kind-of related
+    to the size of eigenvalues, though for larger norms the function
+    becomes inaccurate no matter the length of the series.
 
-    Parameters
-    ----------
-    x : array_like
-        The signal to filter.
-    tau : float
-        The dimensionless filter time constant (tau = tau_in_seconds / dt).
-    axis : integer
-        The axis along which to filter.
-    copy : boolean
-        Whether to copy the input data, or simply work in-place.
+    This function is mostly intended for use in `filter_design`, where
+    the matrices should be small, both in dimensions and norm.
     """
-    x = np.array(x, copy=copy)
-    y = np.rollaxis(x, axis=axis)  # y is rolled view on x
+    if A.ndim != 2 or A.shape[0] != A.shape[1]:
+        raise ValueError("Argument must be a square matrix")
 
-    # --- buffer method
-    if x0 is not None:
-        if x0.shape != y[0].shape:
-            raise ValueError("'x0' %s must have same shape as y[0] %s" %
-                             x0.shape, y[0].shape)
-        yy = np.array(x0)
-    else:
-        # yy is our buffer for the current filter state
-        yy = np.zeros_like(y[0])
+    a = np.linalg.norm(A)
+    if normalize:
+        a = int(a)
+        A = A / float(a)
 
-    d = -np.expm1(-1. / tau)  # zero-order hold filtering
-    for i, yi in enumerate(y):
-        yy += d * (yi - yy)
-        y[i] = yy
+    if n_factors is None:
+        n_factors = 20 if normalize else max(20, int(a))
 
-    return x
+    Y = np.zeros_like(A)
+    for i in range(n_factors, 0, -1):
+        Y = np.dot(A / float(i), Y)
+        np.fill_diagonal(Y, Y.diagonal() + 1)  # add identity matrix
 
-
-def filtfilt(x, tau, axis=0, copy=True):
-    """Zero-phase second-order non-causal lowpass filter, implemented by
-    filtering the input in forward and reverse directions.
-
-    This function is equivalent to scipy's or Matlab's filtfilt function
-    with the first-order lowpass filter
-                         1
-        T(s) = ----------------------
-               tau_in_seconds * s + 1
-    as the filter. The resulting equivalent filter has zero phase distortion
-    and a transfer function magnitude equal to the square of T(s),
-    discretized using the zero-order hold method.
-
-    Parameters
-    ----------
-    x : array_like
-        The signal to filter.
-    tau : float
-        The dimensionless filter time constant (tau = tau_in_seconds / dt).
-    axis : integer
-        The axis along which to filter.
-    copy : boolean
-        Whether to copy the input data, or simply work in-place.
-    """
-    x = np.array(x, copy=copy)
-    y = np.rollaxis(x, axis=axis)  # y is rolled view on x
-
-    # --- buffer method
-    d = -np.expm1(-1. / tau)
-
-    # filter forwards
-    yy = np.zeros_like(y[0])  # yy is our buffer for the current filter state
-    for i, yi in enumerate(y):
-        yy += d * (yi - yy)
-        y[i] = yy
-
-    # filter backwards
-    z = y[::-1]  # z is a flipped view on y
-    for i, zi in enumerate(z):
-        yy += d * (zi - yy)
-        z[i] = yy
-
-    return x
-
-
-def lti(signals, transfer_fn, axis=0):
-    """Linear time-invariant (LTI) system simulation.
-
-    Uses the transfer function description of an LTI system
-    to filter an input signal.
-
-    Parameters
-    ----------
-    signals : array_like
-        An array of signals to apply the LTI system to.
-    transfer_fn : (num, den)
-        A tuple of the transfer function numerator and denominator,
-        both of which should be array_like.
-    axis : int
-        The axis along which to filter.
-    """
-    outputs = np.zeros_like(signals)
-
-    signalsr = np.rollaxis(signals, axis)
-    outputsr = np.rollaxis(outputs, axis)
-
-    a, b = transfer_fn
-    a = np.asarray(a).flatten()
-    b = np.asarray(b).flatten()
-
-    if b[0] != 1.:
-        a = a / b[0]
-        b = b / b[0]
-
-    b = b[1:]  # drop first element (equal to 1)
-
-    x = collections.deque(maxlen=len(a))
-    y = collections.deque(maxlen=len(b))
-    for i, si in enumerate(signalsr):
-        x.appendleft(si)
-        for k, xk in enumerate(x):
-            outputsr[i] += a[k] * xk
-        for k, yk in enumerate(y):
-            outputsr[i] -= b[k] * yk
-        y.appendleft(outputsr[i])
-
-    return outputs
+    return np.linalg.matrix_power(Y, a) if normalize else Y
 
 
 def norm(x, axis=None, keepdims=False):
@@ -221,3 +130,10 @@ def rmse(x, y, axis=None, keepdims=False):
         newer versions of Numpy (>= 1.7).
     """
     return rms(x - y, axis=axis, keepdims=keepdims)
+
+
+if hasattr(np.fft, 'rfftfreq'):
+    rfftfreq = np.fft.rfftfreq
+else:
+    def rfftfreq(n, d=1.0):
+        return np.abs(np.fft.fftfreq(n=n, d=d)[:n // 2 + 1])

@@ -1,18 +1,12 @@
-import logging
-
 import numpy as np
-import pytest
 
 import nengo
 from nengo.utils.compat import range
 from nengo.utils.testing import Timer
 
-logger = logging.getLogger(__name__)
 
-
-def test_multirun(Simulator):
+def test_multirun(Simulator, rng):
     """Test probing the time on multiple runs"""
-    rng = np.random.RandomState(2239)
 
     # set rtol a bit higher, since OCL model.t accumulates error over time
     rtol = 0.0001
@@ -35,16 +29,15 @@ def test_multirun(Simulator):
         assert np.allclose(sim_t[-1], t_sum, rtol=rtol)
 
 
-def test_dts(Simulator):
+def test_dts(Simulator, seed, rng):
     """Test probes with different dts and runtimes"""
 
-    rng = np.random.RandomState(9)
     for i in range(100):
         dt = rng.uniform(0.001, 0.1)  # simulator dt
         dt2 = rng.uniform(dt, 0.15)   # probe dt
         tend = rng.uniform(0.2, 0.3)  # simulator runtime
 
-        with nengo.Network(seed=0) as model:
+        with nengo.Network(seed=seed) as model:
             a = nengo.Node(output=0)
             ap = nengo.Probe(a, sample_every=dt2)
 
@@ -57,7 +50,7 @@ def test_dts(Simulator):
             dt, dt2, tend, len(t), len(x))
 
 
-def test_large(Simulator):
+def test_large(Simulator, seed, logger):
     """Test with a lot of big probes. Can also be used for speed."""
 
     n = 10
@@ -65,7 +58,7 @@ def test_large(Simulator):
     def input_fn(t):
         return list(range(1, 10))
 
-    model = nengo.Network(label='test_large_probes', seed=3249)
+    model = nengo.Network(label='test_large_probes', seed=seed)
     with model:
         probes = []
         for i in range(n):
@@ -77,8 +70,8 @@ def test_large(Simulator):
 
     with Timer() as timer:
         sim.run(simtime)
-    logger.debug("Ran %d probes for %f sec simtime in %0.3f sec",
-                 n, simtime, timer.duration)
+    logger.info("Ran %d probes for %f sec simtime in %0.3f sec",
+                n, simtime, timer.duration)
 
     t = sim.trange()
     x = np.asarray([input_fn(ti) for ti in t])
@@ -153,7 +146,7 @@ def test_input_probe(Simulator):
         assert np.allclose(sim.data[input_probe][:, 0], np.sin(t) + 0.5)
 
 
-def test_slice(Simulator, nl):
+def test_slice(Simulator):
     with nengo.Network() as model:
         a = nengo.Node(output=lambda t: [np.cos(t), np.sin(t)])
         b = nengo.Ensemble(100, 2)
@@ -166,7 +159,7 @@ def test_slice(Simulator, nl):
         bp1b = nengo.Probe(b[1:], synapse=0.03)
 
     sim = Simulator(model)
-    sim.run(1.0)
+    sim.run(0.5)
     assert np.allclose(sim.data[bp][:, 0], sim.data[bp0a][:, 0])
     assert np.allclose(sim.data[bp][:, 0], sim.data[bp0b][:, 0])
     assert np.allclose(sim.data[bp][:, 1], sim.data[bp1a][:, 0])
@@ -204,8 +197,3 @@ def test_solver_defaults(Simulator):
     assert d.solver is solver2
     assert e.solver is solver1
     assert f.solver is solver3
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

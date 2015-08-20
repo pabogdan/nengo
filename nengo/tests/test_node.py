@@ -1,14 +1,8 @@
-import logging
-
 import numpy as np
 import pytest
 
 import nengo
-from nengo.utils.numpy import filt
 from nengo.utils.testing import warns
-
-
-logger = logging.getLogger(__name__)
 
 
 def test_time(Simulator):
@@ -24,8 +18,8 @@ def test_time(Simulator):
     assert np.allclose(t, x, atol=1e-7, rtol=1e-4)
 
 
-def test_simple(Simulator, plt):
-    m = nengo.Network(label='test_simple', seed=123)
+def test_simple(Simulator, plt, seed):
+    m = nengo.Network(seed=seed)
     with m:
         input = nengo.Node(output=lambda t: np.sin(t))
         p = nengo.Probe(input, 'output')
@@ -42,8 +36,8 @@ def test_simple(Simulator, plt):
     assert np.allclose(sim_in, np.sin(sim_t))
 
 
-def test_connected(Simulator, plt):
-    m = nengo.Network(label='test_connected', seed=123)
+def test_connected(Simulator, plt, seed):
+    m = nengo.Network(seed=seed)
     with m:
         input = nengo.Node(output=lambda t: np.sin(t), label='input')
         output = nengo.Node(output=lambda t, x: np.square(x),
@@ -71,8 +65,8 @@ def test_connected(Simulator, plt):
     assert np.allclose(sim_sq, sim_sin**2)
 
 
-def test_passthrough(Simulator, plt):
-    m = nengo.Network(label="test_passthrough", seed=0)
+def test_passthrough(Simulator, plt, seed):
+    m = nengo.Network(seed=seed)
     with m:
         in1 = nengo.Node(output=lambda t: np.sin(t))
         in2 = nengo.Node(output=lambda t: t)
@@ -100,8 +94,8 @@ def test_passthrough(Simulator, plt):
     assert np.allclose(sim_in, sim_out)
 
 
-def test_passthrough_filter(Simulator, plt):
-    m = nengo.Network(label="test_passthrough", seed=0)
+def test_passthrough_filter(Simulator, plt, seed):
+    m = nengo.Network(seed=seed)
     with m:
         omega = 2 * np.pi * 5
         u = nengo.Node(output=lambda t: np.sin(omega * t))
@@ -121,7 +115,7 @@ def test_passthrough_filter(Simulator, plt):
 
     t = sim.trange()
     x = sim.data[up]
-    y = filt(x, synapse / dt)
+    y = nengo.synapses.filt(x, synapse, dt=dt)
     z = sim.data[vp]
 
     plt.plot(t, x)
@@ -131,8 +125,8 @@ def test_passthrough_filter(Simulator, plt):
     assert np.allclose(y[:-1], z[1:], atol=1e-7, rtol=1e-4)
 
 
-def test_circular(Simulator):
-    m = nengo.Network(label="test_circular", seed=0)
+def test_circular(Simulator, seed):
+    m = nengo.Network(seed=seed)
     with m:
         a = nengo.Node(output=lambda t, x: x+1, size_in=1)
         b = nengo.Node(output=lambda t, x: x+1, size_in=1)
@@ -150,7 +144,7 @@ def test_circular(Simulator):
 
 
 def test_function_args_error(Simulator):
-    with nengo.Network(label="test_function_args_error", seed=0):
+    with nengo.Network() as model:
         with pytest.raises(TypeError):
             nengo.Node(output=lambda t, x: x+1)
         nengo.Node(output=lambda t, x=[0]: t+1, size_in=1)
@@ -162,10 +156,11 @@ def test_function_args_error(Simulator):
             nengo.Node(output=[0], size_in=1)
         with pytest.raises(TypeError):
             nengo.Node(output=0, size_in=1)
+    Simulator(model)
 
 
-def test_output_shape_error(Simulator):
-    with nengo.Network(label="test_output_shape_error", seed=0):
+def test_output_shape_error():
+    with nengo.Network():
         with pytest.raises(ValueError):
             nengo.Node(output=[[1, 2], [3, 4]])
         with pytest.raises(ValueError):
@@ -176,10 +171,10 @@ def test_output_shape_error(Simulator):
             nengo.Node(output=[1, 2, 3, 4, 5], size_out=4)
 
 
-def test_none(Simulator, nl_nodirect):
+def test_none(Simulator, seed):
     """Test for nodes that output None."""
 
-    model = nengo.Network(label="test_none", seed=89234)
+    model = nengo.Network(seed=seed)
 
     # This function will fail, because at build time it will be
     # detected as producing output (func is called with 0 input)
@@ -190,7 +185,7 @@ def test_none(Simulator, nl_nodirect):
 
     with model:
         u = nengo.Node(output=input_function)
-        a = nengo.Ensemble(10, neuron_type=nl_nodirect(), dimensions=1)
+        a = nengo.Ensemble(10, dimensions=1)
         nengo.Connection(u, a)
 
     sim = Simulator(model)
@@ -316,6 +311,22 @@ def test_delay(Simulator, plt):
     plt.plot(sim.trange(), -sim.data[bp])
 
 
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])
+def test_args(Simulator, plt):
+    class Fn(object):
+        def __init__(self):
+            self.last_x = None
+
+        def __call__(self, t, x):
+            assert isinstance(t, float)
+            assert isinstance(x, np.ndarray)
+            assert self.last_x is not x  # x should be a new copy on each call
+            self.last_x = x
+            assert x[0] == t
+
+    with nengo.Network() as model:
+        u = nengo.Node(lambda t: t)
+        v = nengo.Node(Fn(), size_in=1, size_out=0)
+        nengo.Connection(u, v, synapse=None)
+
+    sim = Simulator(model)
+    sim.run(0.01)

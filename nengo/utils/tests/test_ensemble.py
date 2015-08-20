@@ -1,11 +1,11 @@
 from __future__ import absolute_import
 
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D  # noqa
+import mpl_toolkits.mplot3d  # noqa  Make 3d projection available.
 import pytest
 
 import nengo
-from nengo.utils.distributions import Uniform
+from nengo.dists import Uniform
 from nengo.utils.ensemble import response_curves, tuning_curves
 
 
@@ -30,19 +30,18 @@ def test_tuning_curves_1d(Simulator, plt, seed):
 
 
 @pytest.mark.parametrize('dimensions', [1, 2])
-def test_tuning_curves(Simulator, plt, seed, dimensions):
+def test_tuning_curves(Simulator, nl_nodirect, plt, seed, dimensions):
     radius = 10
     max_rate = 400
     model = nengo.Network(seed=seed)
     with model:
         ens = nengo.Ensemble(
-            10, dimensions=dimensions, neuron_type=nengo.LIF(),
+            10, dimensions=dimensions, neuron_type=nl_nodirect(),
             max_rates=Uniform(200, max_rate), radius=radius)
     sim = Simulator(model)
 
     eval_points, activities = tuning_curves(ens, sim)
 
-    plt.saveas = 'utils.test_ensemble.test_tuning_curves_%d.pdf' % dimensions
     plot_tuning_curves(plt, eval_points, activities)
 
     # Check that eval_points cover up to the radius.
@@ -64,20 +63,18 @@ def test_tuning_curves_direct_mode(Simulator, plt, seed, dimensions):
 
     eval_points, activities = tuning_curves(ens, sim)
 
-    plt.saveas = ('utils.test_ensemble.test_tuning_curves_direct_mode_%d.pdf'
-                  % dimensions)
     plot_tuning_curves(plt, eval_points, activities)
 
     # eval_points is passed through in direct mode neurons
     assert np.allclose(eval_points, activities)
 
 
-def test_response_curves(Simulator, plt, seed):
+def test_response_curves(Simulator, nl_nodirect, plt, seed):
     max_rate = 400
     model = nengo.Network(seed=seed)
     with model:
         ens = nengo.Ensemble(
-            10, dimensions=10, neuron_type=nengo.LIF(), radius=1.5,
+            10, dimensions=10, neuron_type=nl_nodirect(), radius=1.5,
             max_rates=Uniform(200, max_rate))
     sim = Simulator(model)
 
@@ -103,16 +100,9 @@ def test_response_curves_direct_mode(Simulator, plt, seed, dimensions):
 
     eval_points, activities = response_curves(ens, sim)
 
-    plt.saveas = ('utils.test_ensemble.test_response_curves_direct_mode_%d.pdf'
-                  % dimensions)
     plot_tuning_curves(plt, eval_points, activities)
 
     assert eval_points.ndim == 1 and eval_points.size > 0
     assert np.all(-1.0 <= eval_points) and np.all(eval_points <= 1.0)
     # eval_points is passed through in direct mode neurons
     assert np.allclose(eval_points, activities)
-
-
-if __name__ == '__main__':
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

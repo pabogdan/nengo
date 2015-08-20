@@ -1,14 +1,8 @@
-import logging
-
 import numpy as np
 import pytest
 
-import nengo
 from nengo import params
 from nengo.utils.compat import PY2
-from nengo.utils.distributions import UniformHypersphere
-
-logger = logging.getLogger(__name__)
 
 
 def test_default():
@@ -62,12 +56,22 @@ def test_readonly():
     assert inst.r == 'set'
 
 
-def test_readonly_assert():
-    """Readonly Parameters must default to None."""
+def test_obsoleteparam():
+    """ObsoleteParams must not be set."""
 
-    with pytest.raises(AssertionError):
-        class Test(object):
-            p = params.Parameter(default=1, readonly=True)
+    class Test(object):
+        ab = params.ObsoleteParam(123, "msg")
+
+    inst = Test()
+
+    # cannot be read
+    with pytest.raises(ValueError):
+        inst.ab
+
+    # can only be assigned Unconfigurable
+    inst.ab = params.Unconfigurable
+    with pytest.raises(ValueError):
+        inst.ab = True
 
 
 def test_boolparam():
@@ -172,24 +176,6 @@ def test_stringparam():
         inst.sp = 1
 
 
-def test_listparam():
-    """ListParams must be lists."""
-    class Test(object):
-        lp = params.ListParam(default=[1])
-
-    inst1 = Test()
-    assert inst1.lp == [1]
-    inst1.lp.append(2)
-
-    # The default list is mutable -- other instances will get the same list
-    inst2 = Test()
-    assert len(inst2.lp) == 2
-
-    # Non-lists no good
-    with pytest.raises(ValueError):
-        inst2.lp = (1, 2)
-
-
 def test_dictparam():
     """DictParams must be dictionaries."""
     class Test(object):
@@ -206,41 +192,6 @@ def test_dictparam():
     # Non-dicts no good
     with pytest.raises(ValueError):
         inst2.dp = [('a', 1), ('b', 2)]
-
-
-def test_distributionparam():
-    """DistributionParams can be distributions or samples."""
-    class Test(object):
-        dp = params.DistributionParam(default=None, sample_shape=['*', '*'])
-
-    inst = Test()
-    inst.dp = UniformHypersphere()
-    assert isinstance(inst.dp, UniformHypersphere)
-    inst.dp = np.array([[1], [2], [3]])
-    assert np.all(inst.dp == np.array([[1], [2], [3]]))
-    with pytest.raises(ValueError):
-        inst.dp = 'a'
-    # Sample must have correct dims
-    with pytest.raises(ValueError):
-        inst.dp = np.array([1])
-
-
-def test_distributionparam_sample_shape():
-    """sample_shape dictates the shape of the sample that can be set."""
-    class Test(object):
-        dp = params.DistributionParam(default=None, sample_shape=['d1', 10])
-        d1 = 4
-
-    inst = Test()
-    # Distributions are still cool
-    inst.dp = UniformHypersphere()
-    assert isinstance(inst.dp, UniformHypersphere)
-    # Must be shape (4, 10)
-    inst.dp = np.ones((4, 10))
-    assert np.all(inst.dp == np.ones((4, 10)))
-    with pytest.raises(ValueError):
-        inst.dp = np.ones((10, 4))
-    assert np.all(inst.dp == np.ones((4, 10)))
 
 
 def test_ndarrayparam():
@@ -293,8 +244,3 @@ def test_functionparam():
     # Not OK: not a function
     with pytest.raises(ValueError):
         inst.fp = 0
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

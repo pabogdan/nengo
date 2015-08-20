@@ -4,7 +4,8 @@ import numpy as np
 
 import nengo.utils.numpy as npext
 from nengo.base import NengoObject, ObjView
-from nengo.params import Default, IntParam, ListParam, Parameter, StringParam
+from nengo.params import Default, IntParam, Parameter, StringParam
+from nengo.processes import Process
 from nengo.utils.stdlib import checked_call
 
 
@@ -22,13 +23,15 @@ class OutputParam(Parameter):
                 warnings.warn("'Node.size_out' is being overwritten with "
                               "'Node.size_in' since 'Node.output=None'")
             node.size_out = node.size_in
-        elif callable(output) and node.size_out is not None:
+        elif isinstance(output, Process):
+            if node.size_out is None:
+                node.size_out = output.default_size_out
+        elif callable(output):
             # We trust user's size_out if set, because calling output
             # may have unintended consequences (e.g., network communication)
-            pass
-        elif callable(output):
-            result = self.validate_callable(node, output)
-            node.size_out = 0 if result is None else result.size
+            if node.size_out is None:
+                result = self.validate_callable(node, output)
+                node.size_out = 0 if result is None else result.size
         else:
             # Make into correctly shaped numpy array before validation
             output = npext.array(
@@ -40,7 +43,7 @@ class OutputParam(Parameter):
         self.data[node] = output
 
     def validate_callable(self, node, output):
-        t, x = np.asarray(0.0), np.zeros(node.size_in)
+        t, x = 0.0, np.zeros(node.size_in)
         args = (t, x) if node.size_in > 0 else (t,)
         result, invoked = checked_call(output, *args)
         if not invoked:
@@ -113,7 +116,6 @@ class Node(NengoObject):
     size_in = IntParam(default=0, low=0)
     size_out = IntParam(default=None, low=0, optional=True)
     label = StringParam(default=None, optional=True)
-    probeable = ListParam(default=['output'])
 
     def __init__(self, output=Default,
                  size_in=Default, size_out=Default, label=Default):
@@ -121,10 +123,13 @@ class Node(NengoObject):
         self.size_out = size_out
         self.label = label
         self.output = output  # Must be set after size_out; may modify size_out
-        self.probeable = Default
 
     def __getitem__(self, key):
         return ObjView(self, key)
 
     def __len__(self):
         return self.size_out
+
+    @property
+    def probeable(self):
+        return ['output']

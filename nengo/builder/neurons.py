@@ -3,7 +3,8 @@ import numpy as np
 from nengo.builder.builder import Builder
 from nengo.builder.signal import Signal
 from nengo.builder.operator import Operator
-from nengo.neurons import LIF, LIFRate, AdaptiveLIF, AdaptiveLIFRate
+from nengo.neurons import (AdaptiveLIF, AdaptiveLIFRate, Izhikevich, LIF,
+                           LIFRate, RectifiedLinear, Sigmoid)
 
 
 class SimNeurons(Operator):
@@ -25,9 +26,23 @@ class SimNeurons(Operator):
         output = signals[self.output]
         states = [signals[state] for state in self.states]
 
-        def step():
+        def step_simneurons():
             self.neurons.step_math(dt, J, output, *states)
-        return step
+        return step_simneurons
+
+
+@Builder.register(RectifiedLinear)
+def build_rectifiedlinear(model, reclinear, neurons):
+    model.add_op(SimNeurons(neurons=reclinear,
+                            J=model.sig[neurons]['in'],
+                            output=model.sig[neurons]['out']))
+
+
+@Builder.register(Sigmoid)
+def build_sigmoid(model, sigmoid, neurons):
+    model.add_op(SimNeurons(neurons=sigmoid,
+                            J=model.sig[neurons]['in'],
+                            output=model.sig[neurons]['out']))
 
 
 @Builder.register(LIFRate)
@@ -75,3 +90,19 @@ def build_alif(model, alif, neurons):
                             states=[model.sig[neurons]['voltage'],
                                     model.sig[neurons]['refractory_time'],
                                     model.sig[neurons]['adaptation']]))
+
+
+@Builder.register(Izhikevich)
+def build_izhikevich(model, izhikevich, neurons):
+    model.sig[neurons]['voltage'] = Signal(
+        np.ones(neurons.size_in) * izhikevich.reset_voltage,
+        name="%s.voltage" % neurons)
+    model.sig[neurons]['recovery'] = Signal(
+        np.ones(neurons.size_in)
+        * izhikevich.reset_voltage
+        * izhikevich.coupling, name="%s.recovery" % neurons)
+    model.add_op(SimNeurons(neurons=izhikevich,
+                            J=model.sig[neurons]['in'],
+                            output=model.sig[neurons]['out'],
+                            states=[model.sig[neurons]['voltage'],
+                                    model.sig[neurons]['recovery']]))

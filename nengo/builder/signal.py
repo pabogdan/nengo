@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
 
+import nengo.utils.numpy as npext
 from nengo.utils.compat import StringIO
 
 
@@ -89,41 +90,38 @@ class SignalView(object):
         return len(self.shape)
 
     @property
+    def readonly(self):
+        return not self.value.flags.writeable
+
+    @property
     def size(self):
         return int(np.prod(self.shape))
 
     def reshape(self, *shape):
         if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
             shape = shape[0]
-        if self.elemstrides == (1,):
-            size = int(np.prod(shape))
-            if size != self.size:
-                raise ValueError(shape, self.shape)
+
+        if -1 in shape:
+            shape = list(shape)
+            shape[shape.index(-1)] = self.size / int(-1 * np.prod(shape))
+            if -1 in shape:
+                raise ValueError("can only specify one unknown dimension")
+
+        if self.size == 1:
+            # -- scalars can be reshaped to any number of (1, 1, 1...)
+            elemstrides = [1] * len(shape)
+        else:
             elemstrides = [1]
             for si in reversed(shape[1:]):
                 elemstrides = [si * elemstrides[0]] + elemstrides
-            return SignalView(
-                base=self.base,
-                shape=shape,
-                elemstrides=elemstrides,
-                offset=self.offset)
-        elif self.size == 1:
-            # -- scalars can be reshaped to any number of (1, 1, 1...)
-            size = int(np.prod(shape))
-            if size != self.size:
-                raise ValueError(shape, self.shape)
-            elemstrides = [1] * len(shape)
-            return SignalView(
-                base=self.base,
-                shape=shape,
-                elemstrides=elemstrides,
-                offset=self.offset)
-        else:
-            # -- there are cases where reshaping can still work
-            #    but there are limits too, because we can only
-            #    support view-based reshapes. So the strides have
-            #    to work.
-            raise NotImplementedError('reshape of strided view')
+
+        size = int(np.prod(shape))
+        if size != self.size:
+            raise ValueError(shape, self.shape)
+        return SignalView(base=self.base,
+                          shape=shape,
+                          elemstrides=elemstrides,
+                          offset=self.offset)
 
     def transpose(self, neworder=None):
         if neworder:
@@ -304,7 +302,8 @@ class Signal(SignalView):
     assert_named_signals = False
 
     def __init__(self, value, name=None):
-        self._value = np.asarray(value, dtype=np.float64)
+        # Make sure we use a C-contiguous array
+        self._value = np.array(value, copy=False, order='C', dtype=np.float64)
         if name is not None:
             self._name = name
         if Signal.assert_named_signals:
@@ -410,8 +409,10 @@ class SignalDict(dict):
     def init(self, signal):
         """Set up a permanent mapping from signal -> ndarray."""
         # Make a copy of base.value to start
-        dict.__setitem__(self, signal.base, np.array(signal.base.value))
+        val = npext.array(signal.base.value, readonly=signal.readonly)
+        dict.__setitem__(self, signal.base, val)
 
     def reset(self, signal):
         """Reset ndarray to the base value of the signal that maps to it"""
-        self[signal] = signal.value
+        if not signal.readonly:
+            self[signal] = signal.value

@@ -3,7 +3,7 @@ import logging
 
 import numpy as np
 
-import nengo.utils.numpy as npext
+from . import numpy as npext
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +23,17 @@ def spikes2events(t, spikes):
 def _rates_isi_events(t, events, midpoint, interp):
     import scipy.interpolate
 
+    if len(events) == 0:
+        return np.zeros_like(t)
+
     isis = np.diff(events)
 
-    rt = np.zeros(len(isis) + 2)
-    rt[1:-1] = 0.5*(events[:-1] + events[1:]) if midpoint else events[:-1]
+    rt = np.zeros(len(events) + (1 if midpoint else 2))
+    rt[1:-1] = 0.5*(events[:-1] + events[1:]) if midpoint else events
     rt[0], rt[-1] = t[0], t[-1]
 
     r = np.zeros_like(rt)
-    r[1:-1] = 1. / isis
+    r[1:len(isis) + 1] = 1. / isis
 
     f = scipy.interpolate.interp1d(rt, r, kind=interp, copy=False)
     return f(t)
@@ -127,4 +130,38 @@ def rates_kernel(t, spikes, kind='gauss', tau=0.04):
     else:
         rates = lowpass_filter(spikes, tau_i, kind=kind)
 
-    return rates.T / dt
+    return rates.T
+
+
+def settled_firingrate(step_math, J, states,
+                       dt=0.001, settle_time=0.1, sim_time=1.0):
+    """Compute firing rates (in Hz) for given vector input, ``x``.
+
+    Unlike the default naive implementation, this approach takes into
+    account some characteristics of spiking neurons. We start
+    by simulating the neurons for a short amount of time, to let any
+    initial transients settle. Then, we run the neurons for a second
+    and find the average (which should approximate the firing rate).
+
+    Parameters
+    ---------
+    step_math : function
+        the step function of the neuron type
+    J : ndarray
+        a vector of currents to generate firing rates from
+    *states : list of ndarrays
+        additional state needed by the step function
+    """
+    out = np.zeros_like(J)
+    total = np.zeros_like(J)
+
+    # Simulate for the settle time
+    steps = int(settle_time / dt)
+    for _ in range(steps):
+        step_math(dt, J, out, *states)
+    # Simulate for sim time, and keep track
+    steps = int(sim_time / dt)
+    for _ in range(steps):
+        step_math(dt, J, out, *states)
+        total += out
+    return total / float(steps)

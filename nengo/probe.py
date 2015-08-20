@@ -10,7 +10,7 @@ from nengo.synapses import SynapseParam
 class TargetParam(NengoObjectParam):
     def validate(self, probe, target):
         obj = target.obj if isinstance(target, ObjView) else target
-        if not hasattr(obj, 'probeable') or len(obj.probeable) == 0:
+        if not hasattr(obj, 'probeable'):
             raise TypeError(
                 "Type '%s' is not probeable" % obj.__class__.__name__)
 
@@ -49,7 +49,14 @@ class Probe(NengoObject):
 
     Probes cannot directly affect the simulation.
 
-    TODO: Example usage for each object.
+    All Nengo objects can be probed (except Probes themselves).
+    Each object has different attributes that can be probed.
+    To see what is probeable for each object, print its `probeable` attribute.
+
+    >>> with nengo.Network():
+    ...     ens = nengo.Ensemble(10, 1)
+    >>> print(ens.probeable)
+    ['decoded_output', 'input']
 
     Parameters
     ----------
@@ -98,7 +105,7 @@ class Probe(NengoObject):
     @property
     def slice(self):
         return (self.target.slice if isinstance(self.target, ObjView) else
-                slice(None))
+                None)
 
     @property
     def size_in(self):

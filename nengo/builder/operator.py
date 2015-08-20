@@ -41,10 +41,11 @@ class Operator(object):
     """Base class for operator instances understood by nengo.Simulator.
 
     The lifetime of a Signal during one simulator timestep:
-    0) at most one set operator (optional)
-    1) any number of increments
-    2) any number of reads
-    3) at most one update
+
+    0. at most one set operator (optional)
+    1. any number of increments
+    2. any number of reads
+    3. at most one update
 
     A signal that is only read can be considered a "constant".
 
@@ -53,9 +54,10 @@ class Operator(object):
     whatever were the contents of the update, it can be the case
     that the update is completely hidden and rendered irrelevant.
     There are however at least two reasons to use both a set and an update:
-    (a) to use a signal as scratch space (updating means destroying it)
-    (b) to use sets and updates on partly overlapping views of the same
-        memory.
+
+    - to use a signal as scratch space (updating means destroying it)
+    - to use sets and updates on partly overlapping views of the same
+      memory.
 
     N.B.: It is done on purpose that there are no default values for
     reads, sets, incs, and updates.
@@ -130,10 +132,9 @@ class Operator(object):
 class PreserveValue(Operator):
     """Marks a signal as `set` for the graph checker.
 
-    This is a silly operator that does no computation. It simply marks
-    a signal as `set`, allowing us to apply other ops to signals that
-    we want to preserve their value across multiple time steps. It is
-    used primarily for learning rules.
+    This operator does no computation. It simply marks a signal as `set`,
+    allowing us to apply other ops to signals that we want to preserve their
+    value across multiple time steps. It is used primarily for learning rules.
     """
     def __init__(self, dst):
         self.dst = dst
@@ -144,9 +145,9 @@ class PreserveValue(Operator):
         self.updates = []
 
     def make_step(self, signals, dt, rng):
-        def step():
+        def step_preservevalue():
             pass
-        return step
+        return step_preservevalue
 
 
 class Reset(Operator):
@@ -168,35 +169,68 @@ class Reset(Operator):
         target = signals[self.dst]
         value = self.value
 
-        def step():
+        def step_reset():
             target[...] = value
-        return step
+        return step_reset
 
 
 class Copy(Operator):
     """Assign the value of one signal to another."""
 
-    def __init__(self, dst, src, as_update=False, tag=None):
+    def __init__(self, dst, src, tag=None):
         self.dst = dst
         self.src = src
-        self.as_update = as_update
         self.tag = tag
 
-        self.sets = [] if as_update else [dst]
+        self.sets = [dst]
         self.incs = []
         self.reads = [src]
-        self.updates = [dst] if as_update else []
+        self.updates = []
 
     def __str__(self):
-        return 'Copy(%s -> %s, as_update=%s)' % (
-            str(self.src), str(self.dst), self.as_update)
+        return 'Copy(%s -> %s)' % (self.src, self.dst)
 
     def make_step(self, signals, dt, rng):
         dst = signals[self.dst]
         src = signals[self.src]
 
-        def step():
+        def step_copy():
             dst[...] = src
+        return step_copy
+
+
+class SlicedCopy(Operator):
+    """Copy from `a` to `b` with slicing: `b[b_slice] = a[a_slice]`"""
+    def __init__(self, a, b, a_slice=Ellipsis, b_slice=Ellipsis,
+                 inc=False, tag=None):
+        self.a = a
+        self.b = b
+        self.a_slice = a_slice
+        self.b_slice = b_slice
+        self.inc = inc
+        self.tag = tag
+
+        self.sets = [] if inc else [b]
+        self.incs = [b] if inc else []
+        self.reads = [a]
+        self.updates = []
+
+    def __str__(self):
+        return 'SlicedCopy(%s[%s] -> %s[%s], inc=%s)' % (
+            self.a, self.a_slice, self.b, self.b_slice, self.inc)
+
+    def make_step(self, signals, dt, rng):
+        a = signals[self.a]
+        b = signals[self.b]
+        a_slice = self.a_slice
+        b_slice = self.b_slice
+        inc = self.inc
+
+        def step():
+            if inc:
+                b[b_slice] += a[a_slice]
+            else:
+                b[b_slice] = a[a_slice]
         return step
 
 
@@ -229,11 +263,14 @@ class ElementwiseInc(Operator):
         Yshape = npext.broadcast_shape(Y.shape, 2)
         assert all(len(s) == 2 for s in [Ashape, Xshape, Yshape])
         for da, dx, dy in zip(Ashape, Xshape, Yshape):
-            assert da in [1, dy] and dx in [1, dy] and max(da, dx) == dy
+            if not (da in [1, dy] and dx in [1, dy] and max(da, dx) == dy):
+                raise ValueError("Incompatible shapes in ElementwiseInc: "
+                                 "Trying to do %s += %s * %s" %
+                                 (Yshape, Ashape, Xshape))
 
-        def step():
+        def step_elementwiseinc():
             Y[...] += A * X
-        return step
+        return step_elementwiseinc
 
 
 def reshape_dot(A, X, Y, tag=None):
@@ -271,7 +308,7 @@ class DotInc(Operator):
     with NengoOCL.
     """
 
-    def __init__(self, A, X, Y, as_update=False, tag=None):
+    def __init__(self, A, X, Y, tag=None):
         if X.ndim >= 2 and any(d > 1 for d in X.shape[1:]):
             raise ValueError("X must be a column vector")
         if Y.ndim >= 2 and any(d > 1 for d in Y.shape[1:]):
@@ -280,13 +317,12 @@ class DotInc(Operator):
         self.A = A
         self.X = X
         self.Y = Y
-        self.as_update = as_update
         self.tag = tag
 
         self.sets = []
-        self.incs = [] if as_update else [Y]
+        self.incs = [Y]
         self.reads = [A, X]
-        self.updates = [Y] if as_update else []
+        self.updates = []
 
     def __str__(self):
         return 'DotInc(%s, %s -> %s "%s")' % (
@@ -298,31 +334,44 @@ class DotInc(Operator):
         Y = signals[self.Y]
         reshape = reshape_dot(A, X, Y, self.tag)
 
-        def step():
+        def step_dotinc():
             inc = np.dot(A, X)
             if reshape:
                 inc = np.asarray(inc).reshape(Y.shape)
             Y[...] += inc
-        return step
+        return step_dotinc
 
 
-class SimNoise(Operator):
-    def __init__(self, output, distribution):
+class SimPyFunc(Operator):
+    """Set signal `output` by some Python function of x, possibly t."""
+
+    def __init__(self, output, fn, t_in, x):
         self.output = output
-        self.distribution = distribution
+        self.fn = fn
+        self.t_in = t_in
+        self.x = x
 
-        self.sets = []
-        self.incs = [output]
-        self.reads = []
+        self.sets = [] if output is None else [output]
+        self.incs = []
+        self.reads = [] if x is None else [x]
         self.updates = []
 
+    def __str__(self):
+        return "SimPyFunc(%s -> %s '%s')" % (self.x, self.output, self.fn)
+
     def make_step(self, signals, dt, rng):
-        Y = signals[self.output]
-        dist = self.distribution
-        n = Y.size
-        Yview = Y.reshape(-1)
+        output = signals[self.output] if self.output is not None else None
+        fn = self.fn
+        t_in = self.t_in
+        t_sig = signals['__time__']
 
-        def step():
-            Yview[...] += dist.sample(n, rng=rng)
+        def step_simpyfunc():
+            args = () if self.x is None else (np.copy(signals[self.x]),)
+            y = fn(t_sig.item(), *args) if t_in else fn(*args)
+            if output is not None:
+                if y is None:
+                    raise ValueError(
+                        "Function '%s' returned invalid value" % fn.__name__)
+                output[...] = y
 
-        return step
+        return step_simpyfunc

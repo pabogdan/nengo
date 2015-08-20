@@ -5,7 +5,7 @@ Nengo
 Nengo provides a package for doing large-scale brain modelling in Python.
 
 The source code repository for this package is found at
-https://www.github.com/ctn-waterloo/nengo. Examples of models can be found
+https://www.github.com/nengo/nengo. Examples of models can be found
 in the `examples` directory of the source code repository.
 """
 
@@ -20,16 +20,17 @@ from .config import Config
 from .connection import Connection
 from .ensemble import Ensemble
 from .node import Node
-from .neurons import Direct, LIF, LIFRate, AdaptiveLIF, AdaptiveLIFRate
+from .neurons import (AdaptiveLIF, AdaptiveLIFRate, Direct, Izhikevich, LIF,
+                      LIFRate, RectifiedLinear, Sigmoid)
 from .network import Network
 from .learning_rules import PES, BCM, Oja
 from .params import Default
 from .probe import Probe
 from .rc import rc, RC_DEFAULTS
 from .simulator import Simulator
-from .synapses import Lowpass
+from .synapses import Alpha, LinearFilter, Lowpass
 from .utils.logging import log
-from . import networks
+from . import dists, networks, processes, utils
 
 logger = logging.getLogger(__name__)
 try:

@@ -32,6 +32,8 @@ def test_config_basic():
     assert model.config[a].something == 'hello'
     model.config[a].something = 'world'
     assert model.config[a].something == 'world'
+    del model.config[a].something
+    assert model.config[a].something is None
 
     with pytest.raises(AttributeError):
         model.config[a].something_else
@@ -39,8 +41,6 @@ def test_config_basic():
     with pytest.raises(AttributeError):
         model.config[a].something_else = 1
         model.config[a2b].something = 1
-    with pytest.raises(AttributeError):
-        model.config[model].something
 
     with pytest.raises(KeyError):
         model.config['a'].something
@@ -105,27 +105,29 @@ def test_defaults():
         with nengo.Network() as net2:
             net2.config[nengo.Ensemble].radius = 2.0
             a = nengo.Ensemble(50, dimensions=1, radius=nengo.Default)
+            del net2.config[nengo.Ensemble].radius
+            d = nengo.Ensemble(50, dimensions=1, radius=nengo.Default)
 
     assert c.radius == nengo.Ensemble.radius.default
     assert a.radius == 2.0
+    assert d.radius == nengo.Ensemble.radius.default
 
 
 def test_configstack():
     """Test that setting defaults with bare configs works."""
-    inhib = nengo.Config()
-    inhib.configures(nengo.Connection)
+    inhib = nengo.Config(nengo.Connection)
     inhib[nengo.Connection].synapse = nengo.synapses.Lowpass(0.00848)
     with nengo.Network() as net:
-        net.config[nengo.Connection].modulatory = True
+        net.config[nengo.Connection].transform = -1
         e1 = nengo.Ensemble(5, dimensions=1)
         e2 = nengo.Ensemble(6, dimensions=1)
         excite = nengo.Connection(e1, e2)
         with inhib:
             inhibit = nengo.Connection(e1, e2)
     assert excite.synapse == nengo.Connection.synapse.default
-    assert excite.modulatory
+    assert excite.transform == -1
     assert inhibit.synapse == inhib[nengo.Connection].synapse
-    assert inhibit.modulatory
+    assert inhibit.transform == -1
 
 
 def test_config_property():
@@ -139,51 +141,12 @@ def test_config_property():
     assert len(nengo.config.Config.context) == 0
 
 
-def test_config_str():
-    """Ensure that string representations are nice."""
-    with nengo.Network() as net1:
-        assert net1.config[nengo.Ensemble].params == list(
-            nengo.Ensemble.param_list())
-
-        net1.config[nengo.Ensemble].radius = 3.0
-        net1.config[nengo.Ensemble].seed = 10
-        assert str(net1.config[nengo.Ensemble]) == (
-            "All parameters for Ensemble:\n"
-            "  radius: 3.0\n"
-            "  seed: 10")
-
-        ens = nengo.Ensemble(10, 1, radius=2.0, label="A")
-        assert str(net1.config[ens]) == ("Parameters set for %s:" % ens)
-
-        with nengo.Network() as net2:
-            assert str(net2.config[nengo.Ensemble]) == (
-                "All parameters for Ensemble:")
-            net2.config[nengo.Ensemble].radius = 5.0
-            assert str(net2.config[nengo.Ensemble]) == (
-                "All parameters for Ensemble:\n"
-                "  radius: 5.0")
-
-            with nengo.Network() as net3:
-                net3.config[nengo.Ensemble].set_param(
-                    "extra", Parameter(default="20"))
-                net3.config[nengo.Ensemble].seed = 20
-                assert str(net3.config[nengo.Ensemble]) == (
-                    "All parameters for Ensemble:\n"
-                    "  seed: 20\n"
-                    "  extra: 20")
-                net3.config[ens].extra = 50
-                assert str(net3.config[ens]) == (
-                    "Parameters set for %s:\n"
-                    "  extra: 50" % ens)
-
-
 def test_external_class():
     class A(object):
         thing = Parameter(default='hey')
 
     inst = A()
-    config = nengo.Config()
-    config.configures(A)
+    config = nengo.Config(A)
     config[A].set_param('amount', Parameter(default=1))
 
     # Extra param
@@ -195,6 +158,30 @@ def test_external_class():
         config[inst].thing
 
 
-if __name__ == '__main__':
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])
+def test_instance_fallthrough():
+    """If the class default is set, instances should use that."""
+    class A(object):
+        pass
+
+    inst1 = A()
+    inst2 = A()
+    config = nengo.Config(A)
+    config[A].set_param('amount', Parameter(default=1))
+    assert config[A].amount == 1
+    assert config[inst1].amount == 1
+    assert config[inst2].amount == 1
+    # Value can change for instance
+    config[inst1].amount = 2
+    assert config[A].amount == 1
+    assert config[inst1].amount == 2
+    assert config[inst2].amount == 1
+    # If value to A is changed, unset instances should also change
+    config[A].amount = 3
+    assert config[A].amount == 3
+    assert config[inst1].amount == 2
+    assert config[inst2].amount == 3
+    # If class default is deleted, unset instances go back
+    del config[A].amount
+    assert config[A].amount == 1
+    assert config[inst1].amount == 2
+    assert config[inst2].amount == 1

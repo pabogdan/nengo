@@ -9,10 +9,35 @@ import struct
 import numpy as np
 
 from nengo.rc import rc
-from nengo.utils.cache import bytes2human, human2bytes
+from nengo.utils.cache import byte_align, bytes2human, human2bytes
 from nengo.utils.compat import is_string, pickle, PY2
+from nengo.utils import nco
 
 logger = logging.getLogger(__name__)
+
+
+def get_fragment_size(path):
+    try:
+        return os.statvfs(path).f_frsize
+    except AttributeError:  # no statvfs on Windows
+        return 4096  # correct value in 99% of cases
+
+
+def safe_stat(path):
+    """Does os.stat, but fails gracefully in case of an OSError."""
+    try:
+        return os.stat(path)
+    except OSError as err:
+        logger.warning("OSError during safe_stat: %s", err)
+    return None
+
+
+def safe_remove(path):
+    """Does os.remove, but fails gracefully in case of an OSError."""
+    try:
+        os.remove(path)
+    except OSError as err:
+        logger.warning("OSError during safe_remove: %s", err)
 
 
 class Fingerprint(object):
@@ -64,8 +89,9 @@ class DecoderCache(object):
         :func:`get_default_dir`, if `None`.
     """
 
-    _DECODER_EXT = '.npy'
-    _SOLVER_INFO_EXT = '.pkl'
+    _CACHE_EXT = '.nco'
+    _LEGACY = 'legacy.txt'
+    _LEGACY_VERSION = 0
 
     def __init__(self, read_only=False, cache_dir=None):
         self.read_only = read_only
@@ -74,6 +100,22 @@ class DecoderCache(object):
         self.cache_dir = cache_dir
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
+        self._fragment_size = get_fragment_size(self.cache_dir)
+        self._remove_legacy_files()
+
+    def get_files(self):
+        """Returns all of the files in the cache.
+
+        Returns
+        -------
+        list of (str, int) tuples
+        """
+        files = []
+        for subdir in os.listdir(self.cache_dir):
+            path = os.path.join(self.cache_dir, subdir)
+            if os.path.isdir(path):
+                files.extend(os.path.join(path, f) for f in os.listdir(path))
+        return files
 
     def get_size_in_bytes(self):
         """Returns the size of the cache in bytes as an int.
@@ -82,12 +124,11 @@ class DecoderCache(object):
         -------
         int
         """
-        size = 0
-        for filename in os.listdir(self.cache_dir):
-            size += os.stat(os.path.join(self.cache_dir, filename)).st_size
-        return size
+        stats = (safe_stat(f) for f in self.get_files())
+        return sum(byte_align(st.st_size, self._fragment_size)
+                   for st in stats if st is not None)
 
-    def get_size(self, in_bytes=False):
+    def get_size(self):
         """Returns the size of the cache with units as a string.
 
         Returns
@@ -109,39 +150,62 @@ class DecoderCache(object):
         if is_string(limit):
             limit = human2bytes(limit)
 
-        filelist = []
-        for filename in os.listdir(self.cache_dir):
-            key, ext = os.path.splitext(filename)
-            if ext == self._SOLVER_INFO_EXT:
-                continue
-            path = os.path.join(self.cache_dir, filename)
-            stat = os.stat(path)
-            filelist.append((stat.st_atime, key))
-        filelist.sort()
+        fileinfo = []
+        excess = -limit
+        for path in self.get_files():
+            stat = safe_stat(path)
+            if stat is not None:
+                aligned_size = byte_align(stat.st_size, self._fragment_size)
+                excess += aligned_size
+                fileinfo.append((stat.st_atime, aligned_size, path))
 
-        excess = self.get_size_in_bytes() - limit
-        for _, key in filelist:
+        # Remove the least recently accessed first
+        fileinfo.sort()
+
+        for _, size, path in fileinfo:
             if excess <= 0:
                 break
 
-            decoder_path = os.path.join(
-                self.cache_dir, key + self._DECODER_EXT)
-            solver_info_path = os.path.join(
-                self.cache_dir, key + self._SOLVER_INFO_EXT)
-
-            excess -= os.stat(decoder_path).st_size
-            os.remove(decoder_path)
-            if os.path.exists(solver_info_path):
-                excess -= os.stat(solver_info_path).st_size
-                os.remove(solver_info_path)
+            excess -= size
+            safe_remove(path)
 
     def invalidate(self):
-        """Invalidates the cache (i.e. removes all stored decoder matrices)."""
-        for filename in os.listdir(self.cache_dir):
-            is_cache_file = (filename.endswith(self._DECODER_EXT) or
-                             filename.endswith(self._SOLVER_INFO_EXT))
-            if is_cache_file:
-                os.remove(os.path.join(self.cache_dir, filename))
+        """Invalidates the cache (i.e. removes all cache files)."""
+        for path in self.get_files():
+            safe_remove(path)
+
+    def _check_legacy_file(self):
+        """Checks if the legacy file is up to date."""
+        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
+        if os.path.exists(legacy_file):
+            with open(legacy_file, 'r') as lf:
+                version = int(lf.read().strip())
+        else:
+            version = -1
+        return version == self._LEGACY_VERSION
+
+    def _write_legacy_file(self):
+        """Writes a legacy file, indicating that legacy files do not exist."""
+        legacy_file = os.path.join(self.cache_dir, self._LEGACY)
+        with open(legacy_file, 'w') as lf:
+            lf.write("%d\n" % self._LEGACY_VERSION)
+
+    def _remove_legacy_files(self):
+        """Remove files from now invalid locations in the cache.
+
+        This will not remove any files if a legacy file exists and is
+        up to date. Once legacy files are removed, a legacy file will be
+        written to avoid a costly ``os.listdir`` after calling this.
+        """
+        if self._check_legacy_file():
+            return
+
+        for f in os.listdir(self.cache_dir):
+            path = os.path.join(self.cache_dir, f)
+            if not os.path.isdir(path):
+                safe_remove(path)
+
+        self._write_legacy_file()
 
     @staticmethod
     def get_default_dir():
@@ -153,7 +217,7 @@ class DecoderCache(object):
         """
         return rc.get('decoder_cache', 'path')
 
-    def wrap_solver(self, solver):
+    def wrap_solver(self, solver_fn):
         """Takes a decoder solver and wraps it to use caching.
 
         Parameters
@@ -166,7 +230,8 @@ class DecoderCache(object):
         func
             Wrapped decoder solver.
         """
-        def cached_solver(activities, targets, rng=None, E=None):
+        def cached_solver(solver, neuron_type, gain, bias, x, targets,
+                          rng=None, E=None):
             try:
                 args, _, _, defaults = inspect.getargspec(solver)
             except TypeError:
@@ -177,36 +242,41 @@ class DecoderCache(object):
             if E is None and 'E' in args:
                 E = defaults[args.index('E')]
 
-            key = self._get_cache_key(solver, activities, targets, rng, E)
-            decoder_path = self._get_decoder_path(key)
-            solver_info_path = self._get_solver_info_path(key)
+            key = self._get_cache_key(
+                solver_fn, solver, neuron_type, gain, bias, x, targets, rng, E)
+            path = self._key2path(key)
             try:
-                decoders = np.load(decoder_path)
-                with open(solver_info_path, 'rb') as f:
-                    solver_info = pickle.load(f)
+                with open(path, 'rb') as f:
+                    solver_info, decoders = nco.read(f)
             except:
                 logger.info("Cache miss [{0}].".format(key))
-                decoders, solver_info = solver(
-                    activities, targets, rng=rng, E=E)
+                decoders, solver_info = solver_fn(
+                    solver, neuron_type, gain, bias, x, targets, rng=rng, E=E)
                 if not self.read_only:
-                    np.save(decoder_path, decoders)
-                    with open(solver_info_path, 'wb') as f:
-                        pickle.dump(solver_info, f)
+                    with open(path, 'wb') as f:
+                        nco.write(f, solver_info, decoders)
             else:
                 logger.info(
                     "Cache hit [{0}]: Loaded stored decoders.".format(key))
             return decoders, solver_info
         return cached_solver
 
-    def _get_cache_key(self, solver, activities, targets, rng, E):
+    def _get_cache_key(self, solver_fn, solver, neuron_type, gain, bias,
+                       x, targets, rng, E):
         h = hashlib.sha1()
 
         if PY2:
+            h.update(str(Fingerprint(solver_fn)))
             h.update(str(Fingerprint(solver)))
+            h.update(str(Fingerprint(neuron_type)))
         else:
+            h.update(str(Fingerprint(solver_fn)).encode('utf-8'))
             h.update(str(Fingerprint(solver)).encode('utf-8'))
+            h.update(str(Fingerprint(neuron_type)).encode('utf-8'))
 
-        h.update(np.ascontiguousarray(activities).data)
+        h.update(np.ascontiguousarray(gain).data)
+        h.update(np.ascontiguousarray(bias).data)
+        h.update(np.ascontiguousarray(x).data)
         h.update(np.ascontiguousarray(targets).data)
 
         # rng format doc:
@@ -222,19 +292,20 @@ class DecoderCache(object):
             h.update(np.ascontiguousarray(E).data)
         return h.hexdigest()
 
-    def _get_decoder_path(self, key):
-        return os.path.join(self.cache_dir, key + self._DECODER_EXT)
-
-    def _get_solver_info_path(self, key):
-        return os.path.join(self.cache_dir, key + self._SOLVER_INFO_EXT)
+    def _key2path(self, key):
+        prefix = key[:2]
+        suffix = key[2:]
+        directory = os.path.join(self.cache_dir, prefix)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return os.path.join(directory, suffix + self._CACHE_EXT)
 
 
 class NoDecoderCache(object):
-    """Provides the same interface as :class:`DecoderCache`, but does not
-    perform any caching."""
+    """Provides the same interface as :class:`DecoderCache` without caching."""
 
-    def wrap_solver(self, solver):
-        return solver
+    def wrap_solver(self, solver_fn):
+        return solver_fn
 
     def get_size_in_bytes(self):
         return 0

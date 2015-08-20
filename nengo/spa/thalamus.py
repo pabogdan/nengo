@@ -1,13 +1,13 @@
 import numpy as np
 
 import nengo
+from nengo.dists import Uniform
 from nengo.spa.action_objects import Symbol, Source, Convolution
 from nengo.spa.module import Module
 from nengo.utils.compat import iteritems
-from nengo.utils.distributions import Uniform
 
 
-class Thalamus(nengo.networks.Thalamus, Module):
+class Thalamus(Module):
     """A thalamus, implementing the effects for an associated BasalGanglia
 
     Parameters
@@ -47,7 +47,8 @@ class Thalamus(nengo.networks.Thalamus, Module):
                  neurons_channel_dim=50, subdim_channel=16,
                  synapse_channel=0.01,
                  neurons_cconv=200,
-                 neurons_gate=40, threshold_gate=0.3, synapse_to_gate=0.002):
+                 neurons_gate=40, threshold_gate=0.3, synapse_to_gate=0.002,
+                 label=None, seed=None, add_to_container=None):
 
         self.bg = bg
         self.neurons_action = neurons_action
@@ -68,12 +69,12 @@ class Thalamus(nengo.networks.Thalamus, Module):
         self.gates = {}     # gating ensembles per action (created as needed)
         self.channels = {}  # channels to pass transformed data between modules
 
-        Module.__init__(self)
-        nengo.networks.Thalamus.__init__(
-            self, self.bg.actions.count,
-            n_neurons_per_ensemble=self.neurons_action,
-            mutual_inhib=self.mutual_inhibit,
-            threshold=self.threshold_action)
+        Module.__init__(self, label, seed, add_to_container)
+        nengo.networks.Thalamus(self.bg.actions.count,
+                                n_neurons_per_ensemble=self.neurons_action,
+                                mutual_inhib=self.mutual_inhibit,
+                                threshold=self.threshold_action,
+                                net=self)
 
     def on_add(self, spa):
         Module.on_add(self, spa)
@@ -175,6 +176,7 @@ class Thalamus(nengo.networks.Thalamus, Module):
             source, source_vocab = self.spa.get_module_output(source_name)
 
             target_module = self.spa.get_module(target_name)
+            source_module = self.spa.get_module(source_name)
 
             # build a communication channel between the source and target
             dim = target_vocab.dimensions
@@ -187,6 +189,8 @@ class Thalamus(nengo.networks.Thalamus, Module):
             subdim = self.subdim_channel
             if isinstance(target_module, nengo.spa.Buffer):
                 subdim = target_module.state.dimensions_per_ensemble
+            elif isinstance(source_module, nengo.spa.Buffer):
+                subdim = source_module.state.dimensions_per_ensemble
             elif dim < subdim:
                 subdim = dim
             elif dim % subdim != 0:
@@ -242,7 +246,7 @@ class Thalamus(nengo.networks.Thalamus, Module):
 
         with self:
             # inhibit the convolution when the action is not chosen
-            inhibit = [[-self.route_inhibit]] * (self.neurons_cconv)
             for e in cconv.product.all_ensembles:
+                inhibit = -np.ones((e.n_neurons, 1)) * self.route_inhibit
                 nengo.Connection(gate, e.neurons, transform=inhibit,
                                  synapse=self.synapse_inhibit)

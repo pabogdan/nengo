@@ -2,33 +2,51 @@ import numpy as np
 
 import nengo
 from nengo.networks.ensemblearray import EnsembleArray
-from nengo.utils.distributions import Choice
+from nengo.utils.stdlib import nested
 
 
-class Product(nengo.Network):
-    """Computes the element-wise product of two equally sized vectors."""
+def Product(n_neurons, dimensions, input_magnitude=1, config=None, net=None):
+    """Computes the element-wise product of two equally sized vectors.
 
-    def __init__(self, n_neurons, dimensions,
-                 radius=1, encoders=nengo.Default, **ens_kwargs):
-        self.config[nengo.Ensemble].update(ens_kwargs)
-        self.A = nengo.Node(size_in=dimensions, label="A")
-        self.B = nengo.Node(size_in=dimensions, label="B")
-        self.dimensions = dimensions
+    The network used to calculate the product is described in
+    `Precise multiplications with the NEF
+    <http://nbviewer.ipython.org/github/ctn-archive/technical-reports/blob/master/Precise-multiplications-with-the-NEF.ipynb#An-alternative-network>`_.
 
-        if encoders is nengo.Default:
-            encoders = Choice([[1, 1], [1, -1], [-1, 1], [-1, -1]])
+    A simpler version of this network can be found in the `Multiplication
+    example <http://pythonhosted.org/nengo/examples/multiplication.html>`_.
+    """
+    if net is None:
+        net = nengo.Network(label="Product")
 
-        self.product = EnsembleArray(
-            n_neurons, n_ensembles=dimensions, ens_dimensions=2,
-            encoders=encoders, radius=np.sqrt(2) * radius)
+    if config is None:
+        config = nengo.Config(nengo.Ensemble)
 
-        nengo.Connection(
-            self.A, self.product.input[0::2], synapse=None)
-        nengo.Connection(
-            self.B, self.product.input[1::2], synapse=None)
+    with nested(net, config):
+        net.A = nengo.Node(size_in=dimensions, label="A")
+        net.B = nengo.Node(size_in=dimensions, label="B")
+        net.output = nengo.Node(size_in=dimensions, label="output")
 
-        self.output = self.product.add_output('product', lambda x: x[0] * x[1])
+        net.sq1 = EnsembleArray(
+            max(1, n_neurons // 2), n_ensembles=dimensions, ens_dimensions=1,
+            radius=input_magnitude * np.sqrt(2))
+        net.sq2 = EnsembleArray(
+            max(1, n_neurons // 2), n_ensembles=dimensions, ens_dimensions=1,
+            radius=input_magnitude * np.sqrt(2))
 
-    def dot_product_transform(self, scale=1.0):
-        """Returns a transform for output to compute the scaled dot product."""
-        return scale*np.ones((1, self.dimensions))
+        tr = 1. / np.sqrt(2.)
+        nengo.Connection(net.A, net.sq1.input, transform=tr, synapse=None)
+        nengo.Connection(net.B, net.sq1.input, transform=tr, synapse=None)
+        nengo.Connection(net.A, net.sq2.input, transform=tr, synapse=None)
+        nengo.Connection(net.B, net.sq2.input, transform=-tr, synapse=None)
+
+        sq1_out = net.sq1.add_output('square', np.square)
+        nengo.Connection(sq1_out, net.output, transform=.5)
+        sq2_out = net.sq2.add_output('square', np.square)
+        nengo.Connection(sq2_out, net.output, transform=-.5)
+
+    return net
+
+
+def dot_product_transform(dimensions, scale=1.0):
+    """Returns a transform for output to compute the scaled dot product."""
+    return scale * np.ones((1, dimensions))

@@ -7,10 +7,10 @@ import nengo.utils.numpy as npext
 from nengo.builder.builder import Builder
 from nengo.builder.operator import Copy, DotInc, Reset
 from nengo.builder.signal import Signal
+from nengo.dists import Distribution
 from nengo.ensemble import Ensemble
 from nengo.neurons import Direct
 from nengo.utils.builder import default_n_eval_points
-from nengo.utils.distributions import Distribution
 
 
 BuiltEnsemble = collections.namedtuple(
@@ -24,25 +24,36 @@ def sample(dist, n_samples, rng):
     return np.array(dist)
 
 
+def gen_eval_points(ens, eval_points, rng, scale_eval_points=True):
+    if isinstance(eval_points, Distribution):
+        n_points = ens.n_eval_points
+        if n_points is None:
+            n_points = default_n_eval_points(ens.n_neurons, ens.dimensions)
+        eval_points = eval_points.sample(n_points, ens.dimensions, rng)
+    else:
+        if (ens.n_eval_points is not None
+                and eval_points.shape[0] != ens.n_eval_points):
+            warnings.warn("Number of eval_points doesn't match "
+                          "n_eval_points. Ignoring n_eval_points.")
+        eval_points = np.array(eval_points, dtype=np.float64)
+
+    if scale_eval_points:
+        eval_points *= ens.radius  # scale by ensemble radius
+    return eval_points
+
+
+def get_activities(model, ens, eval_points):
+    x = np.dot(eval_points, model.params[ens].encoders.T / ens.radius)
+    return ens.neuron_type.rates(
+        x, model.params[ens].gain, model.params[ens].bias)
+
+
 @Builder.register(Ensemble)  # noqa: C901
 def build_ensemble(model, ens):
     # Create random number generator
     rng = np.random.RandomState(model.seeds[ens])
 
-    # Generate eval points
-    if isinstance(ens.eval_points, Distribution):
-        n_points = ens.n_eval_points
-        if n_points is None:
-            n_points = default_n_eval_points(ens.n_neurons, ens.dimensions)
-        eval_points = ens.eval_points.sample(n_points, ens.dimensions, rng)
-        # eval_points should be in the ensemble's representational range
-        eval_points *= ens.radius
-    else:
-        if (ens.n_eval_points is not None
-                and ens.eval_points.shape[0] != ens.n_eval_points):
-            warnings.warn("Number of eval_points doesn't match "
-                          "n_eval_points. Ignoring n_eval_points.")
-        eval_points = np.array(ens.eval_points, dtype=np.float64)
+    eval_points = gen_eval_points(ens, ens.eval_points, rng=rng)
 
     # Set up signal
     model.sig[ens]['in'] = Signal(np.zeros(ens.dimensions),
@@ -54,9 +65,10 @@ def build_ensemble(model, ens):
         encoders = np.identity(ens.dimensions)
     elif isinstance(ens.encoders, Distribution):
         encoders = ens.encoders.sample(ens.n_neurons, ens.dimensions, rng=rng)
+        encoders = np.asarray(encoders, dtype=np.float64)
     else:
         encoders = npext.array(ens.encoders, min_dims=2, dtype=np.float64)
-        encoders /= npext.norm(encoders, axis=1, keepdims=True)
+    encoders /= npext.norm(encoders, axis=1, keepdims=True)
 
     # Determine max_rates and intercepts
     max_rates = sample(ens.max_rates, ens.n_neurons, rng=rng)
@@ -97,6 +109,10 @@ def build_ensemble(model, ens):
 
     model.sig[ens]['encoders'] = Signal(
         scaled_encoders, name="%s.scaled_encoders" % ens)
+
+    # Inject noise if specified
+    if ens.noise is not None:
+        model.build(ens.noise, sig_out=model.sig[ens.neurons]['in'], inc=True)
 
     # Create output signal, using built Neurons
     model.add_op(DotInc(

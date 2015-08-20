@@ -6,7 +6,7 @@ from nengo.spa.module import Module
 from nengo.utils.compat import is_number
 
 
-class BasalGanglia(nengo.networks.BasalGanglia, Module):
+class BasalGanglia(Module):
     """A Basal Ganglia, performing action selection on a set of given actions.
 
     Parameters
@@ -16,13 +16,13 @@ class BasalGanglia(nengo.networks.BasalGanglia, Module):
     input_synapse : float
         The synaptic filter on all input connections
     """
-    def __init__(self, actions, input_synapse=0.002):
+    def __init__(self, actions, input_synapse=0.002,
+                 label=None, seed=None, add_to_container=None):
         self.actions = actions
         self.input_synapse = input_synapse
         self._bias = None
-        Module.__init__(self)
-        nengo.networks.BasalGanglia.__init__(self,
-                                             dimensions=self.actions.count)
+        Module.__init__(self, label, seed, add_to_container)
+        nengo.networks.BasalGanglia(dimensions=self.actions.count, net=self)
 
     @property
     def bias(self):
@@ -55,7 +55,7 @@ class BasalGanglia(nengo.networks.BasalGanglia, Module):
             for c in cond.items:
                 if isinstance(c, DotProduct):
                     if ((isinstance(c.item1, Source) and c.item1.inverted) or
-                       (isinstance(c.item1, Source) and c.item1.inverted)):
+                       (isinstance(c.item2, Source) and c.item2.inverted)):
                         raise NotImplementedError(
                             "Inversion in subexpression '%s' from action '%s' "
                             "is not supported by the Basal Ganglia." %
@@ -71,6 +71,8 @@ class BasalGanglia(nengo.networks.BasalGanglia, Module):
                         # enforced in DotProduct constructor
                         assert isinstance(c.item2, Source)
                         self.add_dot_input(i, c.item2, c.item1, c.scale)
+                elif isinstance(c, Source):
+                    self.add_scalar_input(i, c)
                 elif is_number(c):
                     self.add_bias_input(i, c)
                 else:
@@ -141,3 +143,34 @@ class BasalGanglia(nengo.networks.BasalGanglia, Module):
         with self.spa:
             nengo.Connection(output, self.input[index:index+1],
                              transform=transform, synapse=self.input_synapse)
+
+    def add_scalar_input(self, index, source):
+        """ Add a scalar input that will vary over time.
+
+        This would be used for such a thing as the ouput of the Compare module.
+
+        Parameters
+        ----------
+        index : int
+            the index of the action
+        source : Source
+            the module output to read from
+        scale : float
+            a scaling factor to be applied to the result
+        """
+        output, _ = self.spa.get_module_output(source.name)
+        if output.size_out != 1:
+            raise NotImplementedError("Only sources with a dimension"
+                                      "of 1 can be scalar inputs")
+
+        try:
+            scale = float(source.transform.symbol)
+        except ValueError:
+            raise ValueError("Transform can only be a scalar value"
+                             " the value %s is invalid"
+                             % source.transform.symbol)
+
+        with self.spa:
+            nengo.Connection(output, self.input[index:index+1],
+                             transform=scale,
+                             synapse=self.input_synapse)

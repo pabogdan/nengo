@@ -16,6 +16,7 @@ import collections
 import inspect
 
 from nengo.params import is_param
+from nengo.utils.compat import itervalues
 
 
 class ClassParams(object):
@@ -26,19 +27,19 @@ class ClassParams(object):
     """
 
     def __init__(self, configures):
-        self._extraparams = {}
-        self._configures = configures
         assert inspect.isclass(configures)
+        self._configures = configures
+        self._extraparams = {}
+        self._default_params = tuple(
+            attr for attr in dir(self._configures)
+            if is_param(getattr(self._configures, attr)))
 
-    def __getattribute__(self, key):
-        """Overridden to handle instance descriptors manually."""
-        try:
-            # Parameters are never stored in __dict__
-            return super(ClassParams, self).__getattribute__(key)
-        except AttributeError:
-            # get_param gives a good error message, so this is sufficient
-            param = self.get_param(key)
-            return param.defaults[self] if self in param else param.default
+    def __contains__(self, key):
+        return self in self.get_param(key)
+
+    def __getattr__(self, key):
+        param = self.get_param(key)
+        return param.defaults[self] if self in param else param.default
 
     def __setattr__(self, key, value):
         """Overridden to handle instance descriptors manually.
@@ -48,34 +49,52 @@ class ClassParams(object):
         if key.startswith("_"):
             super(ClassParams, self).__setattr__(key, value)
         else:
-            self.get_param(key).defaults[self] = value
+            param = self.get_param(key)
+            if not param.configurable:
+                raise ValueError("Parameter '%s' is not configurable" % key)
+
+            param.validate(self, value)
+            param.defaults[self] = value
+
+    def __delattr__(self, key):
+        if key.startswith("_"):
+            super(ClassParams, self).__delattr__(key)
+        else:
+            del self.get_param(key).defaults[self]
 
     def __str__(self):
-        lines = ["All parameters for %s:" % self._configures.__name__]
-
-        # Only print defaults if we've configured them
-        for attr in self.default_params:
+        name = self._configures.__name__
+        lines = ["Parameters configured for %s:" % name]
+        for attr in self.params:
             if self in self.get_param(attr):
                 lines.append("  %s: %s" % (attr, getattr(self, attr)))
+        if len(lines) > 1:
+            return "\n".join(lines)
+        else:
+            return "No parameters configured for %s." % name
 
-        # Print all extra params
-        for attr in self.extra_params:
-            lines.append("  %s: %s" % (attr, getattr(self, attr)))
+    def __repr__(self):
+        # Only print defaults if we've configured them
+        params = []
+        filled_defaults = [attr for attr in self.default_params
+                           if self in self.get_param(attr)]
+        for attr in filled_defaults + sorted(self.extra_params):
+            params.append("%s: %s" % (attr, getattr(self, attr)))
 
-        return "\n".join(lines)
+        return "<%s[%s]{%s}>" % (self.__class__.__name__,
+                                 self._configures.__name__, ", ".join(params))
 
     def get_param(self, key):
         if key in self._extraparams:
             return self._extraparams[key]
-        elif key in dir(self._configures):
-            return getattr(self._configures, key)
-        raise AttributeError("Unknown config parameter '%s'" % key)
+
+        return getattr(self._configures, key)
 
     def set_param(self, key, value):
         if not is_param(value):
-            raise TypeError("%s is not a parameter" % key)
+            raise TypeError("'%s' is not a parameter" % key)
         elif key in dir(self._configures):
-            raise ValueError("%s is already a parameter in %s. "
+            raise ValueError("'%s' is already a parameter in %s. "
                              "Please choose a different name."
                              % (key, self._configures.__name__))
         self._extraparams[key] = value
@@ -87,16 +106,15 @@ class ClassParams(object):
 
     @property
     def default_params(self):
-        return (attr for attr in dir(self._configures)
-                if is_param(getattr(self._configures, attr)))
+        return self._default_params
 
     @property
     def extra_params(self):
-        return list(self._extraparams)
+        return tuple(self._extraparams)
 
     @property
     def params(self):
-        return list(self.default_params) + list(self.extra_params)
+        return self.default_params + self.extra_params
 
 
 class InstanceParams(object):
@@ -112,14 +130,19 @@ class InstanceParams(object):
         self._clsparams = clsparams
         assert not inspect.isclass(configures)
 
-    def __getattribute__(self, key):
-        try:
-            return super(InstanceParams, self).__getattribute__(key)
-        except AttributeError:
-            if key in self._clsparams.default_params:
-                raise
-            param = self._clsparams.get_param(key)
+    def __contains__(self, key):
+        return self in self._clsparams.get_param(key)
+
+    def __getattr__(self, key):
+        if key in self._clsparams.default_params:
+            raise AttributeError(
+                "Cannot configure the built-in parameter '%s' on an instance "
+                "of '%s'. Please get the attribute directly from the object."
+                % (key, self._configures.__class__.__name__))
+        param = self._clsparams.get_param(key)
+        if self in param:
             return param.__get__(self, self.__class__)
+        return getattr(self._clsparams, key)
 
     def __setattr__(self, key, value):
         """Everything not starting with _ is assumed to be a parameter."""
@@ -127,10 +150,34 @@ class InstanceParams(object):
             super(InstanceParams, self).__setattr__(key, value)
         elif key in dir(self._configures):
             # Disallow configuring attributes the instance already has
-            raise AttributeError("'%s' object has no attribute '%s'"
-                                 % (self.__class__.__name__, key))
+            raise AttributeError(
+                "Cannot configure the built-in parameter '%s' on an instance "
+                "of '%s'. Please set the attribute directly on the object."
+                % (key, self._configures.__class__.__name__))
         else:
             self._clsparams.get_param(key).__set__(self, value)
+
+    def __delattr__(self, key):
+        if key.startswith("_"):
+            super(InstanceParams, self).__delattr__(key)
+        elif key in dir(self._configures):
+            # Disallow configuring attributes the instance already has
+            raise AttributeError(
+                "Cannot configure the built-in parameter '%s' on an instance "
+                "of '%s'. Please delete the attribute directly on the object."
+                % (key, self._configures.__class__.__name__))
+        else:
+            self._clsparams.get_param(key).__delete__(self)
+
+    def __repr__(self):
+        params = []
+        filled_params = [attr for attr in self._clsparams.params
+                         if self in self._clsparams.get_param(attr)]
+        for attr in filled_params:
+            params.append("%s: %s" % (attr, getattr(self, attr)))
+
+        return "<%s[%s]{%s}>" % (self.__class__.__name__,
+                                 self._configures, ", ".join(params))
 
     def __str__(self):
         lines = ["Parameters set for %s:" % str(self._configures)]
@@ -169,8 +216,7 @@ class Config(object):
     -------
     >>> class A(object): pass
     >>> inst = A()
-    >>> config = Config()
-    >>> config.configures(A)
+    >>> config = Config(A)
     >>> config[A].set_param('amount', Parameter(default=1))
     >>> print(config[inst].amount)
     1
@@ -183,28 +229,68 @@ class Config(object):
 
     context = collections.deque(maxlen=100)  # static stack of Config objects
 
-    def __init__(self):
+    def __init__(self, *configures):
         self.params = {}
+        for cls in configures:
+            self.configures(cls)
 
-    @classmethod
-    def default(cls, nengo_cls, param):
+    @staticmethod
+    def default(nengo_cls, param):
         """Look up the current default value for a parameter.
 
-        The default is found by going through the config stack, top to bottom.
+        The default is found by going through the config stack, from most
+        specific to least specific. The network that an object is in
+        is the most specific; the top-level network is the least specific.
         If no default is found there, then the parameter's default value
         is returned.
         """
 
         # Get the descriptor
         desc = getattr(nengo_cls, param)
-        for config in reversed(cls.context):
+        if not desc.configurable:
+            raise ValueError("Unconfigurable parameters have no defaults. "
+                             "Please ensure you are not using the 'Default' "
+                             "keyword with an unconfigurable parameter.")
+
+        for config in reversed(Config.context):
 
             # If a default has been set for this config, return it
-            if config[nengo_cls] in desc:
+            if nengo_cls in config.params and config[nengo_cls] in desc:
                 return getattr(config[nengo_cls], param)
 
         # Otherwise, return the param default
         return desc.default
+
+    @staticmethod
+    def all_defaults(nengo_cls=None):
+        """Look up all of the default values in the current context.
+
+        Parameters
+        ----------
+        nengo_cls : class, optional
+            If specified, only the defaults for a particular class will
+            be returned. If not specified, the defaults for all configured
+            classes will be returned.
+
+        Returns
+        -------
+        str
+        """
+        lines = []
+        if nengo_cls is None:
+            all_configured = set()
+            for config in Config.context:
+                all_configured.update(key for key in config.params
+                                      if inspect.isclass(key))
+            lines.extend([Config.all_defaults(key) for key in all_configured])
+        else:
+            lines.append("Current defaults for %s:" % nengo_cls.__name__)
+            for attr in dir(nengo_cls):
+                desc = getattr(nengo_cls, attr)
+                if is_param(desc) and desc.configurable:
+                    val = Config.default(nengo_cls, attr)
+                    lines.append("  %s: %s" % (attr, val))
+        return "\n".join(lines)
 
     def __enter__(self):
         Config.context.append(self)
@@ -235,7 +321,7 @@ class Config(object):
             # If no superclass ClassParams, KeyError
             raise KeyError(
                 "Type '%(name)s' is not set up for configuration. "
-                "Call 'configure(%(name)s)' first." % {'name': key.__name__})
+                "Call 'configures(%(name)s)' first." % {'name': key.__name__})
 
         # For new instances, if we configure a class in the mro we're good
         for cls in key.__class__.__mro__:
@@ -248,7 +334,14 @@ class Config(object):
         # If we don't configure the class, KeyError
         raise KeyError(
             "Type '%(name)s' is not set up for configuration. Call "
-            "configure('%(name)s') first." % {'name': key.__class__.__name__})
+            "configures('%(name)s') first." % {'name': key.__class__.__name__})
+
+    def __repr__(self):
+        classes = [key.__name__ for key in self.params if inspect.isclass(key)]
+        return "<%s(%s)>" % (self.__class__.__name__, ', '.join(classes))
+
+    def __str__(self):
+        return "\n".join(str(v) for v in itervalues(self.params))
 
     def configures(self, cls):
         """Start configuring a particular class and its instances."""

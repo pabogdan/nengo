@@ -1,5 +1,6 @@
-import nengo
 import pytest
+
+import nengo
 from nengo.utils.probe import probe_all
 
 
@@ -76,7 +77,3 @@ def test_probe_all_kwargs():
     for probe in model.probes + subnet.probes:
         assert probe.sample_every == 0.1
         assert probe.seed == 10
-
-if __name__ == '__main__':
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

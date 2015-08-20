@@ -39,10 +39,19 @@ if PY2:
         assert isinstance(s, bytes)
         return s
 
+    class TextIO(StringIO):
+        def write(self, data):
+            if not isinstance(data, unicode):
+                data = unicode(data,
+                               getattr(self, '_encoding', 'UTF-8'),
+                               'replace')
+            StringIO.write(self, data)
+
 else:
     import pickle
     import configparser
     from io import StringIO
+    TextIO = StringIO
     string_types = (str,)
     int_types = (int,)
     range = range
@@ -63,7 +72,7 @@ else:
 
 assert configparser
 assert pickle
-assert StringIO
+assert TextIO
 
 
 def is_integer(obj):
@@ -74,13 +83,27 @@ def is_iterable(obj):
     return isinstance(obj, collections.Iterable)
 
 
+def is_ndarray(obj):
+    # np.generic allows us to return true for scalars as well as true arrays
+    return isinstance(obj, (np.ndarray, np.generic))
+
+
 def is_number(obj, check_complex=False):
-    types = (float, complex) if check_complex else (float,)
-    return isinstance(obj, types + int_types)
+    types = ((float, complex, np.number) if check_complex else
+             (float, np.floating))
+    return is_integer(obj) or isinstance(obj, types)
 
 
 def is_string(obj):
     return isinstance(obj, string_types)
+
+
+def is_array(obj):
+    return isinstance(obj, np.ndarray)
+
+
+def is_array_like(obj):
+    return is_array(obj) or is_iterable(obj) or is_number(obj)
 
 
 def with_metaclass(meta, *bases):

@@ -1,3 +1,6 @@
+import pickle
+import tempfile
+
 import pytest
 
 import nengo
@@ -8,15 +11,17 @@ def test_nengoobjectparam():
     """NengoObjectParam must be a Nengo object and is readonly by default."""
     class Test(object):
         nop = NengoObjectParam()
-
     inst = Test()
-    assert inst.nop is None
+
     # Must be a Nengo object
     with pytest.raises(ValueError):
         inst.nop = 'a'
+
+    # Can set it once
     a = nengo.Ensemble(10, dimensions=2, add_to_container=False)
     inst.nop = a.neurons
     assert inst.nop is a.neurons
+
     # Can't set it twice
     with pytest.raises(ValueError):
         inst.nop = a
@@ -45,6 +50,12 @@ def test_nengoobjectparam_nonzero():
         inst.nout = nin
 
 
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])
+def test_pickle():
+    with nengo.Network():
+        a = nengo.Ensemble(10, 3)
+
+    with tempfile.TemporaryFile() as f:
+        with pytest.raises(NotImplementedError):
+            pickle.dump(a, f)
+        with pytest.raises(NotImplementedError):
+            pickle.dump(a[:2], f)

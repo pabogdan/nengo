@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 
 from nengo.config import Config
-from nengo.params import Default, is_param, Parameter
+from nengo.params import Default, is_param, Parameter, Unconfigurable
 from nengo.utils.compat import with_metaclass
 
 
@@ -68,6 +68,12 @@ class NengoObject(with_metaclass(NetworkMember)):
             e.args = (arg0,) + e.args[1:]
             raise
 
+    def __getstate__(self):
+        raise NotImplementedError("Nengo objects do not support pickling")
+
+    def __setstate__(self, state):
+        raise NotImplementedError("Nengo objects do not support pickling")
+
     @classmethod
     def param_list(cls):
         """Returns a list of parameter names that can be set."""
@@ -114,6 +120,12 @@ class ObjView(object):
             raise IndexError("Invalid slice '%s' of %s"
                              % (self.slice, self.obj))
 
+    def __getstate__(self):
+        raise NotImplementedError("Nengo objects do not support pickling")
+
+    def __setstate__(self, state):
+        raise NotImplementedError("Nengo objects do not support pickling")
+
     def __len__(self):
         return self.size_out
 
@@ -138,16 +150,18 @@ class ObjView(object):
 
 
 class NengoObjectParam(Parameter):
-    def __init__(self, default=None, optional=False, readonly=True,
+    def __init__(self, optional=False, readonly=True,
                  nonzero_size_in=False, nonzero_size_out=False):
-        assert default is None  # These can't have defaults
+        default = Unconfigurable  # These can't have defaults
         self.nonzero_size_in = nonzero_size_in
         self.nonzero_size_out = nonzero_size_out
         super(NengoObjectParam, self).__init__(default, optional, readonly)
 
     def validate(self, instance, nengo_obj):
         from nengo.ensemble import Neurons
-        if not isinstance(nengo_obj, (NengoObject, Neurons, ObjView)):
+        from nengo.connection import LearningRule
+        if not isinstance(nengo_obj, (
+                NengoObject, ObjView, Neurons, LearningRule)):
             raise ValueError("'%s' is not a Nengo object" % nengo_obj)
         if self.nonzero_size_in and nengo_obj.size_in < 1:
             raise ValueError("'%s' must have size_in > 0." % nengo_obj)

@@ -1,5 +1,16 @@
-from nengo.params import Parameter
+import warnings
+
+from nengo.base import NengoObjectParam
+from nengo.params import Parameter, NumberParam
 from nengo.utils.compat import is_iterable, itervalues
+
+
+class ConnectionParam(NengoObjectParam):
+    def validate(self, instance, conn):
+        from nengo.connection import Connection
+        if not isinstance(conn, Connection):
+            raise ValueError("'%s' is not a Connection" % conn)
+        super(ConnectionParam, self).validate(instance, conn)
 
 
 class LearningRuleType(object):
@@ -9,11 +20,19 @@ class LearningRuleType(object):
     the Connection on which you want to do learning.
     """
 
-    def __init__(self, learning_rate=1.0):
+    learning_rate = NumberParam(low=0, low_open=True)
+    error_type = 'none'
+    modifies = []
+    probeable = []
+
+    def __init__(self, learning_rate=1e-6):
+        if learning_rate >= 1.0:
+            warnings.warn("This learning rate is very high, and can result "
+                          "in floating point errors from too much current.")
         self.learning_rate = learning_rate
 
-    def __str__(self):
-        return self.__class__.__name__
+    def __repr__(self):
+        return '<%s>' % self.__class__.__name__
 
 
 class PES(LearningRuleType):
@@ -23,27 +42,30 @@ class PES(LearningRuleType):
 
     Parameters
     ----------
-    error : NengoObject
-        The Node, Ensemble, or Neurons providing the error signal. Must be
-        connectable to the post-synaptic object that is being used for this
-        learning rule.
+    pre_tau : float, optional
+        Filter constant on activities of neurons in pre population.
+        Defaults to 0.005.
     learning_rate : float, optional
         A scalar indicating the rate at which decoders will be adjusted.
         Defaults to 1e-5.
 
     Attributes
     ----------
+    pre_tau : float
+        Filter constant on activities of neurons in pre population.
     learning_rate : float
         The given learning rate.
     error_connection : Connection
         The modulatory connection created to project the error signal.
     """
 
-    modifies = ['Ensemble', 'Neurons']
-    probeable = ['scaled_error', 'activities']
+    pre_tau = NumberParam(low=0, low_open=True)
+    error_type = 'decoder'
+    modifies = ['transform', 'decoders']
+    probeable = ['error', 'correction', 'activities', 'delta']
 
-    def __init__(self, error_connection, learning_rate=1.0):
-        self.error_connection = error_connection
+    def __init__(self, learning_rate=1e-4, pre_tau=0.005):
+        self.pre_tau = pre_tau
         super(PES, self).__init__(learning_rate)
 
 
@@ -66,13 +88,25 @@ class BCM(LearningRuleType):
 
     Attributes
     ----------
-    TODO
+    learning_rate : float
+        The given learning rate.
+    theta_tau : float
+        A scalar indicating the time constant for theta integration.
+    pre_tau : float
+        Filter constant on activities of neurons in pre population.
+    post_tau : float
+        Filter constant on activities of neurons in post population.
     """
 
-    modifies = ['Neurons']
+    pre_tau = NumberParam(low=0, low_open=True)
+    post_tau = NumberParam(low=0, low_open=True)
+    theta_tau = NumberParam(low=0, low_open=True)
+    error_type = 'none'
+    modifies = ['transform']
+    probeable = ['theta', 'pre_filtered', 'post_filtered', 'delta']
 
     def __init__(self, pre_tau=0.005, post_tau=None, theta_tau=1.0,
-                 learning_rate=1.0):
+                 learning_rate=1e-9):
         self.theta_tau = theta_tau
         self.pre_tau = pre_tau
         self.post_tau = post_tau if post_tau is not None else pre_tau
@@ -98,13 +132,25 @@ class Oja(LearningRuleType):
 
     Attributes
     ----------
-    TODO
+    learning_rate : float
+        The given learning rate.
+    beta : float
+        A scalar governing the amount of forgetting. Larger => more forgetting.
+    pre_tau : float
+        Filter constant on activities of neurons in pre population.
+    post_tau : float
+        Filter constant on activities of neurons in post population.
     """
 
-    modifies = ['Neurons']
+    pre_tau = NumberParam(low=0, low_open=True)
+    post_tau = NumberParam(low=0, low_open=True)
+    beta = NumberParam(low=0)
+    error_type = 'none'
+    modifies = ['transform']
+    probeable = ['pre_filtered', 'post_filtered', 'delta']
 
     def __init__(self, pre_tau=0.005, post_tau=None, beta=1.0,
-                 learning_rate=1.0):
+                 learning_rate=1e-6):
         self.pre_tau = pre_tau
         self.post_tau = post_tau if post_tau is not None else pre_tau
         self.beta = beta

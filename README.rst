@@ -1,13 +1,13 @@
-.. image:: https://travis-ci.org/ctn-waterloo/nengo.png?branch=master
-  :target: https://travis-ci.org/ctn-waterloo/nengo
+.. image:: https://travis-ci.org/nengo/nengo.png?branch=master
+  :target: https://travis-ci.org/nengo/nengo
   :alt: Travis-CI build status
 
-.. image:: https://coveralls.io/repos/ctn-waterloo/nengo/badge.png?branch=master
-  :target: https://coveralls.io/r/ctn-waterloo/nengo?branch=master
+.. image:: https://coveralls.io/repos/nengo/nengo/badge.png?branch=master
+  :target: https://coveralls.io/r/nengo/nengo?branch=master
   :alt: Test coverage
 
-.. image:: https://requires.io/github/ctn-waterloo/nengo/requirements.png?branch=master
-  :target: https://requires.io/github/ctn-waterloo/nengo/requirements/?branch=master
+.. image:: https://requires.io/github/nengo/nengo/requirements.png?branch=master
+  :target: https://requires.io/github/nengo/nengo/requirements/?branch=master
   :alt: Requirements Status
 
 .. image:: https://pypip.in/v/nengo/badge.png
@@ -28,39 +28,97 @@ Nengo: Large-scale brain modelling in Python
 Installation
 ============
 
-We will be making a release on PyPI soon,
-meaning you will be able to ``pip install nengo``.
-For now, you can do the following::
+To install Nengo, use::
 
-  pip install -e git://github.com/ctn-waterloo/nengo.git#egg=nengo
+  pip install nengo
 
-Nengo supports Python 2.6, 2.7, and 3.3+ in a single codebase.
+Nengo depends on `NumPy <http://www.numpy.org/>`_.
+If you have difficulty installing,
+try installing NumPy first (see below).
 
-Usage
-=====
+Nengo supports Python 2.6, 2.7, and 3.3+.
 
-TODO
+Developer install
+-----------------
+
+.. code-block:: bash
+
+   git clone https://github.com/nengo/nengo.git
+   cd nengo
+   python setup.py develop --user
+
+If you're using a ``virtualenv``
+(recommended!) then you can omit the ``--user`` flag.
+
+Installing requirements
+-----------------------
+
+Nengo's main requirement is Numpy
+(and optionally Scipy for better performance).
+Currently, installing Numpy from ``pip`` will install
+an unoptimized (slow) version,
+so it is preferable to install Numpy
+using one of the following methods.
+It is important to install Numpy
+before installing the other requirements.
+
+Anaconda
+^^^^^^^^
+
+Numpy is included as part of the
+[Anaconda](https://store.continuum.io/cshop/anaconda/)
+Python distribution.
+This is a straightforward solution to get Numpy working on
+Windows, Mac, or Linux.
+
+Ubuntu
+^^^^^^
+
+On Ubuntu and derivatives (e.g. Linux Mint),
+Numpy and Scipy can be installed using ``apt-get``:
+
+.. code-block:: bash
+
+   sudo apt-get install python-numpy python-scipy
+
+From source
+^^^^^^^^^^^
+
+Numpy can be installed from source.
+This is the most complicated method,
+but is also the most flexible
+and results in the best performance.
+See the detailed instructions
+[here](http://hunseblog.wordpress.com/2014/09/15/installing-numpy-and-openblas/).
+
+Other requirements
+^^^^^^^^^^^^^^^^^^
+
+To install optional requirements to enable additional features, do
+
+.. code-block:: bash
+
+   pip install -r requirements.txt
+   pip install -r requirements-optional.txt
+
+The testing and documentation requirements
+can be found in similarly named files.
 
 Documentation & Examples
 ========================
 
 Documentation and examples can be found at
-`ReadTheDocs <https://nengo.readthedocs.org/en/latest/>`_.
+`<https://pythonhosted.org/nengo/>`_.
 
 
-Testing
-=======
+Running tests
+=============
 
 One way to verify that your installation is working correctly
 is to run the unit tests. We use ``py.test``,
 so you can run the Nengo unit tests with::
 
   py.test --pyargs nengo
-
-The test suite can take some time to run,
-so we recommend install the ``pytest-xdist`` plugin
-and running ``py.test --pyargs nengo -n 4``
-or however many free CPU cores you have available.
 
 Running individual tests
 ------------------------
@@ -84,10 +142,19 @@ Plotting the results of tests
 -----------------------------
 
 Many Nengo test routines have the built-in ability to plot test results
-for easier debugging. To enable this feature, set the environment variable
-``NENGO_TEST_PLOT=1``, for example::
+for easier debugging. To enable this feature, set the ``--plots`` flag,
+for example::
 
-  NENGO_TEST_PLOT=1 py.test --pyargs nengo
+  py.test --plots --pyargs nengo
 
 Plots are placed in ``nengo.simulator.plots`` in whatever directory
-``py.test`` is invoked from.
+``py.test`` is invoked from. You can also set a different directory::
+
+  py.test --plots=path-to-plots --pyargs nengo
+
+Contributing
+============
+
+Please read the ``LICENSE.rst`` file to understand what becoming a contributor entails.
+Once you have read and understood the liscence agreement, add yourself to the ``CONTRIBUTORS.rst`` file.
+Note that all pull requests must be commited by someone else other than the original requestor.

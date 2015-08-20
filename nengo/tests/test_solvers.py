@@ -5,23 +5,19 @@ TODO:
 """
 from __future__ import print_function
 
-import logging
-
 import numpy as np
 import pytest
 
 import nengo
+from nengo.dists import UniformHypersphere
 from nengo.utils.compat import range
-from nengo.utils.distributions import UniformHypersphere
-from nengo.utils.numpy import filtfilt, rms, norm
+from nengo.utils.numpy import rms, norm
 from nengo.utils.testing import allclose, Timer
 from nengo.solvers import (
     cholesky, conjgrad, block_conjgrad, conjgrad_scipy, lsmr_scipy,
     Lstsq, LstsqNoise, LstsqL2, LstsqL2nz,
     LstsqL1, LstsqDrop,
     Nnls, NnlsL2, NnlsL2nz)
-
-logger = logging.getLogger(__name__)
 
 
 def get_encoders(n_neurons, dims, rng=None):
@@ -49,9 +45,7 @@ def get_system(m, n, d, rng=None, sort=False):
     return rates(np.dot(eval_points, encoders)), eval_points
 
 
-def test_cholesky():
-    rng = np.random.RandomState(4829)
-
+def test_cholesky(rng):
     m, n = 100, 100
     A = rng.normal(size=(m, n))
     b = rng.normal(size=(m, ))
@@ -63,8 +57,7 @@ def test_cholesky():
     assert np.allclose(x0, x2)
 
 
-def test_conjgrad():
-    rng = np.random.RandomState(4829)
+def test_conjgrad(rng):
     A, b = get_system(1000, 100, 2, rng=rng)
     sigma = 0.1 * A.max()
 
@@ -77,9 +70,7 @@ def test_conjgrad():
 
 @pytest.mark.parametrize('Solver', [
     Lstsq, LstsqNoise, LstsqL2, LstsqL2nz, LstsqDrop])
-def test_decoder_solver(Solver, plt):
-    rng = np.random.RandomState(39408)
-
+def test_decoder_solver(Solver, plt, rng):
     dims = 1
     n_neurons = 100
     n_points = 500
@@ -100,17 +91,16 @@ def test_decoder_solver(Solver, plt):
     plt.plot(test, np.zeros_like(test), 'k--')
     plt.plot(test, test - est)
     plt.title("relative RMSE: %0.2e" % rel_rmse)
-    plt.saveas = 'test_solvers.test_decoder_solver.%s.pdf' % Solver.__name__
 
-    assert np.allclose(test, est, atol=3e-2, rtol=1e-3)
+    atol = 3.5e-2 if Solver is LstsqNoise else 1.5e-2
+    assert np.allclose(test, est, atol=atol, rtol=1e-3)
     assert rel_rmse < 0.02
 
 
 @pytest.mark.parametrize('Solver', [
     LstsqNoise, LstsqL2, LstsqL2nz])
-def test_subsolvers(Solver, tol=1e-2):
-    rng = np.random.RandomState(89)
-    get_rng = lambda: np.random.RandomState(87)
+def test_subsolvers(Solver, seed, rng, tol=1e-2):
+    get_rng = lambda: np.random.RandomState(seed)
 
     A, b = get_system(500, 100, 5, rng=rng)
     x0, _ = Solver(solver=cholesky)(A, b, rng=get_rng())
@@ -119,22 +109,20 @@ def test_subsolvers(Solver, tol=1e-2):
     for subsolver in subsolvers:
         x, info = Solver(solver=subsolver, tol=tol)(A, b, rng=get_rng())
         rel_rmse = rms(x - x0) / rms(x0)
-        assert rel_rmse < 3 * tol
-        # the above 3 * tol is just a heuristic; the main purpose of this
+        assert rel_rmse < 4 * tol
+        # the above 4 * tol is just a heuristic; the main purpose of this
         # test is to make sure that the subsolvers don't throw errors
         # in-situ. They are tested more robustly elsewhere.
 
 
-@pytest.mark.optional
 @pytest.mark.parametrize('Solver', [LstsqL1])
-def test_decoder_solver_extra(Solver):
-    test_decoder_solver(Solver)
+def test_decoder_solver_extra(Solver, plt, rng):
+    pytest.importorskip('sklearn')
+    test_decoder_solver(Solver, plt, rng)
 
 
 @pytest.mark.parametrize('Solver', [Lstsq, LstsqL2, LstsqL2nz])
-def test_weight_solver(Solver):
-    rng = np.random.RandomState(39408)
-
+def test_weight_solver(Solver, rng):
     dims = 2
     a_neurons, b_neurons = 100, 101
     n_points = 1000
@@ -165,9 +153,9 @@ def test_weight_solver(Solver):
     assert np.allclose(W1, W2)
 
 
-@pytest.mark.optional  # uses scipy
-def test_scipy_solvers():
-    rng = np.random.RandomState(4829)
+def test_scipy_solvers(rng):
+    pytest.importorskip('scipy', minversion='0.11')  # version for lsmr
+
     A, b = get_system(1000, 100, 2, rng=rng)
     sigma = 0.1 * A.max()
 
@@ -178,10 +166,10 @@ def test_scipy_solvers():
     assert np.allclose(x0, x2, atol=2e-5, rtol=1e-3)
 
 
-@pytest.mark.optional  # uses scipy
 @pytest.mark.parametrize('Solver', [Nnls, NnlsL2, NnlsL2nz])
-def test_nnls(Solver, plt):
-    rng = np.random.RandomState(39408)
+def test_nnls(Solver, plt, rng):
+    pytest.importorskip('scipy')
+
     A, x = get_system(500, 100, 1, rng=rng, sort=True)
     y = x**2
 
@@ -196,18 +184,18 @@ def test_nnls(Solver, plt):
     plt.subplot(212)
     plt.plot(x, np.zeros_like(x), 'k--')
     plt.plot(x, yest - y)
-    plt.saveas = 'test_solvers.test_nnls.%s.pdf' % Solver.__name__
 
     assert np.allclose(yest, y, atol=3e-2, rtol=1e-3)
     assert rel_rmse < 0.02
 
 
-@pytest.mark.benchmark
-def test_subsolvers_L2():
+@pytest.mark.slow
+def test_subsolvers_L2(rng, logger):
+    pytest.importorskip('scipy', minversion='0.11')  # version for lsmr
+
     ref_solver = cholesky
     solvers = [conjgrad, block_conjgrad, conjgrad_scipy, lsmr_scipy]
 
-    rng = np.random.RandomState(39408)
     A, B = get_system(m=2000, n=1000, d=10, rng=rng)
     sigma = 0.1 * A.max()
 
@@ -215,46 +203,47 @@ def test_subsolvers_L2():
         x0, _ = ref_solver(A, B, sigma)
 
     xs = np.zeros((len(solvers),) + x0.shape)
-    print()
     for i, solver in enumerate(solvers):
         with Timer() as t:
             xs[i], info = solver(A, B, sigma)
-        print("%s: %0.3f (%0.2f) %s" % (
-            solver.__name__, t.duration, t.duration / t0.duration, info))
+        logger.info('solver: %s', solver.__name__)
+        logger.info('duration: %0.3f', t.duration)
+        logger.info('duration relative to reference solver: %0.2f',
+                    (t.duration / t0.duration))
+        logger.info('info: %s', info)
 
     for solver, x in zip(solvers, xs):
         assert np.allclose(x0, x, atol=1e-5, rtol=1e-3), (
             "Solver %s" % solver.__name__)
 
 
-@pytest.mark.benchmark
-def test_subsolvers_L1():
-    rng = np.random.RandomState(39408)
+@pytest.mark.noassertions
+def test_subsolvers_L1(rng, logger):
+    pytest.importorskip('sklearn')
+
     A, B = get_system(m=2000, n=1000, d=10, rng=rng)
 
     l1 = 1e-4
     with Timer() as t:
         LstsqL1(l1=l1, l2=0)(A, B, rng=rng)
-    print(t.duration)
+    logger.info('duration: %0.3f', t.duration)
 
 
-@pytest.mark.benchmark
-def test_compare_solvers(Simulator, nl_nodirect, plt):
+def test_compare_solvers(Simulator, plt, seed):
+    pytest.importorskip('sklearn')
 
     N = 70
     decoder_solvers = [
         Lstsq(), LstsqNoise(), LstsqL2(), LstsqL2nz(), LstsqL1()]
     weight_solvers = [LstsqL1(weights=True), LstsqDrop(weights=True)]
 
-    dt = 1e-3
     tfinal = 4
 
     def input_function(t):
         return np.interp(t, [1, 3], [-1, 1], left=-1, right=1)
 
-    model = nengo.Network('test_solvers', seed=290)
+    model = nengo.Network(seed=seed)
     with model:
-        model.config[nengo.Ensemble].neuron_type = nl_nodirect()
         u = nengo.Node(output=input_function)
         a = nengo.Ensemble(N, dimensions=1)
         nengo.Connection(u, a)
@@ -263,30 +252,31 @@ def test_compare_solvers(Simulator, nl_nodirect, plt):
         probes = []
         names = []
         for solver in decoder_solvers + weight_solvers:
-            b = nengo.Ensemble(N, dimensions=1, seed=99)
+            b = nengo.Ensemble(N, dimensions=1, seed=seed + 1)
             nengo.Connection(a, b, solver=solver)
             probes.append(nengo.Probe(b))
             names.append("%s(%s)" % (
                 solver.__class__.__name__, 'w' if solver.weights else 'd'))
 
-    sim = Simulator(model, dt=dt)
+    sim = Simulator(model)
     sim.run(tfinal)
     t = sim.trange()
 
     # ref = sim.data[up]
-    ref = filtfilt(sim.data[ap], 20)
+    ref = nengo.synapses.filtfilt(sim.data[ap], 0.02, dt=sim.dt)
     outputs = np.array([sim.data[probe][:, 0] for probe in probes]).T
-    outputs_f = filtfilt(outputs, 0.02 / dt, axis=0)
+    outputs_f = nengo.synapses.filtfilt(outputs, 0.02, dt=sim.dt)
 
     close = allclose(t, ref, outputs_f,
-                     atol=0.05, rtol=0, buf=0.1, delay=0.007,
+                     atol=0.07, rtol=0, buf=0.1, delay=0.007,
                      plt=plt, labels=names, individual_results=True)
 
     for name, c in zip(names, close):
         assert c, "Solver '%s' does not meet tolerances" % name
 
 
-@pytest.mark.benchmark  # noqa: C901
+@pytest.mark.slow
+@pytest.mark.noassertions
 def test_regularization(Simulator, nl_nodirect, plt):
 
     # TODO: multiple trials per parameter set, with different seeds
@@ -297,7 +287,6 @@ def test_regularization(Simulator, nl_nodirect, plt):
     filters = np.linspace(0, 0.03, 11)
 
     buf = 0.2  # buffer for initial transients
-    dt = 1e-3
     tfinal = 3 + buf
 
     def input_function(t):
@@ -323,7 +312,7 @@ def test_regularization(Simulator, nl_nodirect, plt):
                         probes[i, j, k, l] = nengo.Probe(
                             a, solver=Solver(reg=reg), synapse=synapse)
 
-    sim = Simulator(model, dt=dt)
+    sim = Simulator(model)
     sim.run(tfinal)
     t = sim.trange()
 
@@ -349,11 +338,11 @@ def test_regularization(Simulator, nl_nodirect, plt):
     plt.tight_layout()
 
 
-@pytest.mark.benchmark
-def test_eval_points_static(Simulator, plt):
+@pytest.mark.slow
+@pytest.mark.noassertions
+def test_eval_points_static(Simulator, plt, rng):
     solver = LstsqL2()
 
-    rng = np.random.RandomState(0)
     n = 100
     d = 5
 
@@ -414,13 +403,12 @@ def test_eval_points_static(Simulator, plt):
     plt.ylabel('(rmse - mean) / std')
 
 
-@pytest.mark.benchmark
-def test_eval_points(Simulator, nl_nodirect, plt):
-    rng = np.random.RandomState(0)
+@pytest.mark.slow
+@pytest.mark.noassertions
+def test_eval_points(Simulator, nl_nodirect, plt, seed, rng, logger):
     n = 100
     d = 5
     filter = 0.08
-    dt = 1e-3
 
     eval_points = np.logspace(np.log10(300), np.log10(5000), 11)
     eval_points = np.round(eval_points).astype('int')
@@ -441,8 +429,7 @@ def test_eval_points(Simulator, nl_nodirect, plt):
         x *= rng_j.uniform() / norm(x)
 
         for i, n_points in enumerate(eval_points):
-            model = nengo.Network(
-                'test_eval_points(%d,%d)' % (i, j), seed=seed)
+            model = nengo.Network(seed=seed)
             with model:
                 model.config[nengo.Ensemble].neuron_type = nl_nodirect()
                 u = nengo.Node(output=x)
@@ -453,18 +440,20 @@ def test_eval_points(Simulator, nl_nodirect, plt):
                 ap = nengo.Probe(a)
 
             with Timer() as timer:
-                sim = Simulator(model, dt=dt)
+                sim = Simulator(model)
             sim.run(10 * filter)
 
             t = sim.trange()
-            xt = filtfilt(sim.data[up], filter / dt)
-            yt = filtfilt(sim.data[ap], filter / dt)
+            xt = nengo.synapses.filtfilt(sim.data[up], filter, dt=sim.dt)
+            yt = nengo.synapses.filtfilt(sim.data[ap], filter, dt=sim.dt)
             t0 = 5 * filter
             t1 = 7 * filter
             tmask = (t > t0) & (t < t1)
 
             rmses[i, j] = rms(yt[tmask] - xt[tmask])
-            print("done %d (%d) in %0.3f s" % (n_points, j, timer.duration))
+            logger.info('trial %d', j)
+            logger.info('  n_points: %d', n_points)
+            logger.info('  duration: %0.3f s', timer.duration)
 
     # subtract out mean for each model
     rmses_norm = rmses - rmses.mean(0, keepdims=True)
@@ -477,8 +466,3 @@ def test_eval_points(Simulator, nl_nodirect, plt):
     plt.semilogx(eval_points, low, 'b-')
     plt.xlim([eval_points[0], eval_points[-1]])
     plt.xticks(eval_points, eval_points)
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

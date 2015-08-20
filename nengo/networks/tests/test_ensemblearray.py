@@ -1,32 +1,26 @@
-import logging
-
 import numpy as np
 import pytest
 
 import nengo
+from nengo.dists import Choice
 from nengo.utils.compat import range
-from nengo.utils.distributions import Choice
 from nengo.utils.testing import WarningCatcher
 
-logger = logging.getLogger(__name__)
 
-
-def test_multidim(Simulator, nl, plt):
-    """Test an ensemble array with multiple dimensions per ensemble"""
+def test_multidim(Simulator, plt, seed, rng):
+    """Tests with multiple dimensions per ensemble"""
     dims = 3
     n_neurons = 60
     radius = 1.0
 
-    rng = np.random.RandomState(523887)
     a = rng.uniform(low=-0.7, high=0.7, size=dims)
     b = rng.uniform(low=-0.7, high=0.7, size=dims)
     c = np.zeros(2 * dims)
     c[::2] = a
     c[1::2] = b
 
-    model = nengo.Network(label='Multidim', seed=121)
+    model = nengo.Network(seed=seed)
     with model:
-        model.config[nengo.Ensemble].neuron_type = nl()
         inputA = nengo.Node(a)
         inputB = nengo.Node(b)
         A = nengo.networks.EnsembleArray(n_neurons, dims, radius=radius)
@@ -44,7 +38,7 @@ def test_multidim(Simulator, nl, plt):
         C_p = nengo.Probe(C.output, synapse=0.03)
 
     sim = Simulator(model)
-    sim.run(1.0)
+    sim.run(0.4)
 
     t = sim.trange()
 
@@ -55,6 +49,8 @@ def test_multidim(Simulator, nl, plt):
         for i in range(a_sim.shape[1]):
             plt.plot(t, a_ref[:, i], '--', color=colors[i % 6])
             plt.plot(t, a_sim[:, i], '-', color=colors[i % 6])
+        plt.xticks(np.linspace(0, 0.4, 5))
+        plt.xlim(right=t[-1])
         plt.title(title)
 
     plt.subplot(131)
@@ -64,9 +60,9 @@ def test_multidim(Simulator, nl, plt):
     plt.subplot(133)
     plot(sim, c, C_p, title="C")
 
-    a_sim = sim.data[A_p][t > 0.5].mean(axis=0)
-    b_sim = sim.data[B_p][t > 0.5].mean(axis=0)
-    c_sim = sim.data[C_p][t > 0.5].mean(axis=0)
+    a_sim = sim.data[A_p][t > 0.2].mean(axis=0)
+    b_sim = sim.data[B_p][t > 0.2].mean(axis=0)
+    c_sim = sim.data[C_p][t > 0.2].mean(axis=0)
 
     rtol, atol = 0.1, 0.05
     assert np.allclose(a, a_sim, atol=atol, rtol=rtol)
@@ -88,16 +84,60 @@ def _mmul_transforms(A_shape, B_shape, C_dim):
     return transformA, transformB
 
 
-def test_matrix_mul(Simulator, nl, plt):
+def test_multifunc(Simulator, plt, seed, rng):
+    """Tests with different functions computed by each ensemble."""
+    dims = 3
+    n_neurons = 60
+
+    inp = rng.uniform(low=-0.7, high=0.7, size=dims)
+    functions = [lambda x: [x*2],
+                 lambda x: [-x, -x*2],
+                 lambda x: [.5*x]]
+    output = []
+    for i in range(len(functions)):
+        output.extend(functions[i](inp[i]))
+
+    model = nengo.Network(seed=seed)
+    with model:
+        inp_node = nengo.Node(inp)
+        ea = nengo.networks.EnsembleArray(n_neurons, dims)
+        ea_funcs = ea.add_output('multiple functions', function=functions)
+
+        nengo.Connection(inp_node, ea.input)
+
+        ea_p = nengo.Probe(ea.output, synapse=0.03)
+        ea_funcs_p = nengo.Probe(ea_funcs, synapse=0.03)
+
+    sim = Simulator(model)
+    sim.run(0.4)
+
+    t = sim.trange()
+
+    def plot(sim, expected, probe, title=""):
+        simdata = sim.data[probe]
+        colors = ['b', 'g', 'r', 'c']
+        for i in range(simdata.shape[1]):
+            plt.axhline(expected[i], ls='--', color=colors[i % 4])
+            plt.plot(t, simdata[:, i], color=colors[i % 4])
+        plt.xticks(np.linspace(0, 0.4, 5))
+        plt.xlim(right=t[-1])
+        plt.title(title)
+
+    plt.subplot(121)
+    plot(sim, inp, ea_p, title="A")
+    plt.subplot(122)
+    plot(sim, output, ea_funcs_p, title="B")
+
+
+def test_matrix_mul(Simulator, plt, seed):
     N = 100
 
     Amat = np.asarray([[0.5, -0.5]])
     Bmat = np.asarray([[0.8, 0.3], [0.2, 0.7]])
     radius = 1
 
-    model = nengo.Network(label='Matrix Multiplication', seed=123)
+    model = nengo.Network(label='Matrix Multiplication', seed=seed)
     with model:
-        model.config[nengo.Ensemble].neuron_type = nl()
         A = nengo.networks.EnsembleArray(
             N, Amat.size, radius=radius, label="A")
         B = nengo.networks.EnsembleArray(
@@ -162,9 +202,9 @@ def test_arguments():
         nengo.networks.EnsembleArray(nengo.LIF(10), 1, dimensions=2)
 
 
-def test_neuronconnection(Simulator, nl):
+def test_neuronconnection(Simulator, nl, seed):
     catcher = WarningCatcher()
-    with nengo.Network(seed=123) as net:
+    with nengo.Network(seed=seed) as net:
         net.config[nengo.Ensemble].neuron_type = nl()
 
         input = nengo.Node([-10] * 20)
@@ -176,17 +216,13 @@ def test_neuronconnection(Simulator, nl):
         p = nengo.Probe(ea.neuron_output)
 
     s = Simulator(net)
-    s.run(1)
+    s.run(0.1)
 
-    assert np.all(s.data[p][-1] == 0.0)
+    # Some nls (e.g. Sigmoid) never go all the way to 0
+    assert np.all(s.data[p][-1] < 1e-2)
 
     if nl == nengo.Direct:
         assert (len(catcher.record) == 1 and
                 catcher.record[0].category is UserWarning)
     else:
         assert len(catcher.record) == 0
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

@@ -1,16 +1,13 @@
 import numpy as np
-import pytest
 
 import nengo
 from nengo.utils.builder import full_transform
 
 
-def test_full_transform(Simulator, nl_nodirect):
-    name = 'connection_slicing'
+def test_full_transform():
     N = 30
 
-    with nengo.Network(label=name) as m:
-        m.config[nengo.Ensemble].neuron_type = nl_nodirect()
+    with nengo.Network():
         neurons3 = nengo.Ensemble(3, dimensions=1).neurons
         ens1 = nengo.Ensemble(N, dimensions=1)
         ens2 = nengo.Ensemble(N, dimensions=2)
@@ -90,6 +87,11 @@ def test_full_transform(Simulator, nl_nodirect):
                                                        [0, 0, 3],
                                                        [0, 1, 0]]))
 
+        # using vector 1D
+        conn = nengo.Connection(ens1, ens1, transform=[5])
+        assert full_transform(conn).ndim != 1
+        assert np.all(full_transform(conn) == 5)
+
         # using vector and lists
         conn = nengo.Connection(ens3[[1, 0, 2]], ens3[[2, 0, 1]],
                                 transform=[1, 2, 3])
@@ -102,8 +104,3 @@ def test_full_transform(Simulator, nl_nodirect):
         conn = nengo.Connection(ens3, ens2[[0, 1, 0]])
         assert np.all(full_transform(conn) == np.array([[1, 0, 1],
                                                        [0, 1, 0]]))
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

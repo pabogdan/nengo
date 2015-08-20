@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 
 import nengo
-from nengo.utils.builder import (remove_passthrough_nodes,
-                                 objs_and_connections)
+from nengo.utils.builder import objs_and_connections, remove_passthrough_nodes
 
 
 def test_remove_passthrough():
@@ -46,7 +45,7 @@ def test_remove_passthrough_bg():
         def printout(t, x):
             print(t, x)
         output = nengo.Node(printout, size_in=D, label='output')
-        bg = nengo.networks.BasalGanglia(D, 20, label='BG')
+        bg = nengo.networks.BasalGanglia(D, 20)
         nengo.Connection(input, bg.input, synapse=0.01)
         nengo.Connection(bg.output, output, synapse=0.01)
 
@@ -75,8 +74,3 @@ def test_passthrough_errors():
         nengo.Connection(node, node, synapse=0.01)
     with pytest.raises(Exception):
         remove_passthrough_nodes(*objs_and_connections(model))
-
-
-if __name__ == "__main__":
-    nengo.log(debug=True)
-    pytest.main([__file__, '-v'])

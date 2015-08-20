@@ -17,6 +17,7 @@ from nengo.builder.signal import SignalDict
 from nengo.cache import get_default_decoder_cache
 from nengo.utils.compat import range
 from nengo.utils.graphs import toposort
+from nengo.utils.progress import ProgressTracker
 from nengo.utils.simulator import operator_depencency_graph
 
 logger = logging.getLogger(__name__)
@@ -83,13 +84,11 @@ class Simulator(object):
             A network object to the built and then simulated.
             If a fully built ``model`` is passed in, then you can skip
             building the network by passing in network=None.
-        dt : float
+        dt : float, optional
             The length of a simulator timestep, in seconds.
-        seed : int
+        seed : int, optional
             A seed for all stochastic operators used in this simulator.
-            Note that there are not stochastic operators implemented
-            currently, so this parameters does nothing.
-        model : nengo.builder.Model instance or None
+        model : nengo.builder.Model instance or None, optional
             A model object that contains build artifacts to be simulated.
             Usually the simulator will build this model for you; however,
             if you want to build the network manually, or to inject some
@@ -97,6 +96,7 @@ class Simulator(object):
             then you can pass in a ``nengo.builder.Model`` instance.
         """
         if model is None:
+            dt = float(dt)  # make sure it's a float (for division purposes)
             self.model = Model(dt=dt,
                                label="%s, dt=%f" % (network, dt),
                                decoder_cache=get_default_decoder_cache())
@@ -109,19 +109,15 @@ class Simulator(object):
 
         self.model.decoder_cache.shrink()
 
-        self.seed = np.random.randint(npext.maxint) if seed is None else seed
-        self.rng = np.random.RandomState(self.seed)
-
         # -- map from Signal.base -> ndarray
         self.signals = SignalDict(__time__=np.asarray(0.0, dtype=np.float64))
         for op in self.model.operators:
             op.init_signals(self.signals)
 
+        # Order the steps (they are made in `Simulator.reset`)
         self.dg = operator_depencency_graph(self.model.operators)
-        self._step_order = [node for node in toposort(self.dg)
-                            if hasattr(node, 'make_step')]
-        self._steps = [node.make_step(self.signals, dt, self.rng)
-                       for node in self._step_order]
+        self._step_order = [op for op in toposort(self.dg)
+                            if hasattr(op, 'make_step')]
 
         # Add built states to the probe dictionary
         self._probe_outputs = self.model.params
@@ -129,7 +125,8 @@ class Simulator(object):
         # Provide a nicer interface to probe outputs
         self.data = ProbeDict(self._probe_outputs)
 
-        self.reset()
+        seed = np.random.randint(npext.maxint) if seed is None else seed
+        self.reset(seed=seed)
 
     @property
     def dt(self):
@@ -139,7 +136,7 @@ class Simulator(object):
     @dt.setter
     def dt(self, dummy):
         raise AttributeError("Cannot change simulator 'dt'. Please file "
-                             "an issue at http://github.com/ctn-waterloo/nengo"
+                             "an issue at http://github.com/nengo/nengo"
                              "/issues and describe your use case.")
 
     @property
@@ -149,6 +146,9 @@ class Simulator(object):
 
     def trange(self, dt=None):
         """Create a range of times matching probe data.
+
+        Note that the range does not start at 0 as one might expect, but at
+        the first timestep (i.e., dt).
 
         Parameters
         ----------
@@ -184,28 +184,83 @@ class Simulator(object):
 
         self._probe()
 
-    def run(self, time_in_seconds):
-        """Simulate for the given length of time."""
+    def run(self, time_in_seconds, progress_bar=True):
+        """Simulate for the given length of time.
+
+        Parameters
+        ----------
+        steps : int
+            Number of steps to run the simulation for.
+        progress_bar : bool or ``ProgressBar`` or ``ProgressUpdater``, optional
+            Progress bar for displaying the progress.
+
+            By default, ``progress_bar=True``, which uses the default progress
+            bar (text in most situations, or an HTML version in recent IPython
+            notebooks).
+
+            To disable the progress bar, use ``progress_bar=False``.
+
+            For more control over the progress bar, pass in a
+            :class:`nengo.utils.progress.ProgressBar`,
+            or :class:`nengo.utils.progress.ProgressUpdater` instance.
+        """
         steps = int(np.round(float(time_in_seconds) / self.dt))
         logger.debug("Running %s for %f seconds, or %d steps",
                      self.model.label, time_in_seconds, steps)
-        self.run_steps(steps)
+        self.run_steps(steps, progress_bar=progress_bar)
 
-    def run_steps(self, steps):
-        """Simulate for the given number of `dt` steps."""
-        for i in range(steps):
-            if i % 1000 == 0:
-                logger.debug("Step %d", i)
-            self.step()
+    def run_steps(self, steps, progress_bar=True):
+        """Simulate for the given number of `dt` steps.
 
-    def reset(self):
-        """Reset the simulator state."""
+        Parameters
+        ----------
+        steps : int
+            Number of steps to run the simulation for.
+        progress_bar : bool or ``ProgressBar`` or ``ProgressUpdater``, optional
+            Progress bar for displaying the progress.
+
+            By default, ``progress_bar=True``, which uses the default progress
+            bar (text in most situations, or an HTML version in recent IPython
+            notebooks).
+
+            To disable the progress bar, use ``progress_bar=False``.
+
+            For more control over the progress bar, pass in a
+            :class:`nengo.utils.progress.ProgressBar`,
+            or :class:`nengo.utils.progress.ProgressUpdater` instance.
+        """
+        with ProgressTracker(steps, progress_bar) as progress:
+            for i in range(steps):
+                self.step()
+                progress.step()
+
+    def reset(self, seed=None):
+        """Reset the simulator state.
+
+        Parameters
+        ----------
+        seed : int, optional
+            A seed for all stochastic operators used in the simulator.
+            This will change the random sequences generated for noise
+            or inputs (e.g. from Processes), but not the built objects
+            (e.g. ensembles, connections).
+        """
+        if seed is not None:
+            self.seed = seed
+
         self.n_steps = 0
         self.signals['__time__'][...] = 0
 
+        # reset signals
         for key in self.signals:
             if key != '__time__':
                 self.signals.reset(key)
 
+        # rebuild steps (resets ops with their own state, like Processes)
+        self.rng = np.random.RandomState(self.seed)
+        self._steps = [op.make_step(self.signals, self.dt, self.rng)
+                       for op in self._step_order]
+
+        # clear probe data
         for probe in self.model.probes:
             self._probe_outputs[probe] = []

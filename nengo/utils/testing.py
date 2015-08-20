@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import inspect
 import itertools
+import logging
 import os
 import re
 import sys
@@ -11,68 +12,170 @@ import warnings
 import numpy as np
 import pytest
 
-from nengo.utils.compat import is_string
+from .compat import is_string
+from .logging import CaptureLogHandler, console_formatter
 
 
-class Plotter(object):
-    class Mock(object):
-        def __init__(self, *args, **kwargs):
-            pass
+class Mock(object):
+    def __init__(self, *args, **kwargs):
+        pass
 
-        def __call__(self, *args, **kwargs):
-            return Plotter.Mock()
+    def __call__(self, *args, **kwargs):
+        return Mock()
 
-        @classmethod
-        def __getattr__(cls, name):
-            if name in ('__file__', '__path__'):
-                return '/dev/null'
-            elif name[0] == name[0].upper():
-                mockType = type(name, (), {})
-                mockType.__module__ = __name__
-                return mockType
-            else:
-                return Plotter.Mock()
+    def __mul__(self, other):
+        return 1.0
 
-    def __init__(self, simulator, module, function, nl=None, plot=None):
-        if plot is None:
-            self.plot = int(os.getenv("NENGO_TEST_PLOT", 0))
+    @classmethod
+    def __getattr__(cls, name):
+        if name in ('__file__', '__path__'):
+            return '/dev/null'
+        elif name[0] == name[0].upper():
+            mockType = type(name, (), {})
+            mockType.__module__ = __name__
+            return mockType
         else:
-            self.plot = plot
+            return Mock()
 
-        self.dirname = "%s.plots" % simulator.__module__
-        if nl is not None:
-            self.dirname = os.path.join(self.dirname, nl.__name__)
 
-        modparts = module.__name__.split('.')
-        modparts = modparts[1:]
+class Recorder(object):
+    def __init__(self, dirname, module_name, function_name):
+        self.dirname = dirname
+        self.module_name = module_name
+        self.function_name = function_name
+
+        if self.record and not os.path.exists(self.dirname):
+            os.makedirs(self.dirname)
+
+    @property
+    def record(self):
+        return self.dirname is not None
+
+    @property
+    def dirname(self):
+        return self._dirname
+
+    @dirname.setter
+    def dirname(self, _dirname):
+        if _dirname is not None and not os.path.exists(_dirname):
+            os.makedirs(_dirname)
+
+        self._dirname = _dirname
+
+    def get_filename(self, ext=''):
+        modparts = self.module_name.split('.')[1:]
         modparts.remove('tests')
-        self.filename = "%s.%s.pdf" % ('.'.join(modparts), function.__name__)
+        return "%s.%s.%s" % ('.'.join(modparts), self.function_name, ext)
+
+    def get_filepath(self, ext=''):
+        if not self.record:
+            raise ValueError("Cannot construct path when not recording")
+        return os.path.join(self.dirname, self.get_filename(ext=ext))
 
     def __enter__(self):
-        if self.plot:
+        raise NotImplementedError()
+
+    def __exit__(self, type, value, traceback):
+        raise NotImplementedError()
+
+
+class Plotter(Recorder):
+    def __enter__(self):
+        if self.record:
             import matplotlib.pyplot as plt
             self.plt = plt
-            if not os.path.exists(self.dirname):
-                os.makedirs(self.dirname)
         else:
-            self.plt = Plotter.Mock()
+            self.plt = Mock()
         return self.plt
 
     def __exit__(self, type, value, traceback):
-        if self.plot:
+        if self.record:
             if hasattr(self.plt, 'saveas') and self.plt.saveas is None:
                 del self.plt.saveas
                 self.plt.close('all')
                 return
-            elif hasattr(self.plt, 'saveas'):
+
+            if hasattr(self.plt, 'saveas'):
                 self.filename = self.plt.saveas
                 del self.plt.saveas
+            else:
+                self.filename = self.get_filename(ext='pdf')
 
             if len(self.plt.gcf().get_axes()) > 0:
                 # tight_layout errors if no axes are present
                 self.plt.tight_layout()
             self.plt.savefig(os.path.join(self.dirname, self.filename))
             self.plt.close('all')
+
+
+class Analytics(Recorder):
+    DOC_KEY = 'documentation'
+
+    def __init__(self, dirname, module_name, function_name):
+        super(Analytics, self).__init__(dirname, module_name, function_name)
+
+        self.data = {}
+        self.doc = {}
+
+    @staticmethod
+    def load(path, module, function_name):
+        modparts = module.split('.')
+        modparts = modparts[1:]
+        modparts.remove('tests')
+
+        return np.load(os.path.join(path, "%s.%s.npz" % (
+            '.'.join(modparts), function_name)))
+
+    def __enter__(self):
+        return self
+
+    def add_data(self, name, data, doc=""):
+        if name == self.DOC_KEY:
+            raise ValueError("The name '{0}' is reserved.".format(
+                self.DOC_KEY))
+
+        if self.record:
+            self.data[name] = data
+            if doc != "":
+                self.doc[name] = doc
+
+    def save_data(self):
+        if len(self.data) == 0:
+            return
+
+        npz_data = dict(self.data)
+        if len(self.doc) > 0:
+            npz_data.update({self.DOC_KEY: self.doc})
+        np.savez(self.get_filepath(ext='npz'), **npz_data)
+
+    def __exit__(self, type, value, traceback):
+        if self.record:
+            self.save_data()
+
+
+class Logger(Recorder):
+    def __enter__(self):
+        if self.record:
+            self.handler = CaptureLogHandler()
+            self.handler.setFormatter(console_formatter)
+            self.logger = logging.getLogger()
+            self.logger.addHandler(self.handler)
+            self.old_level = self.logger.getEffectiveLevel()
+            self.logger.setLevel(logging.INFO)
+            self.logger.info("=== Test run at %s ===",
+                             time.strftime("%Y-%m-%d %H:%M:%S"))
+        else:
+            self.logger = Mock()
+        return self.logger
+
+    def __exit__(self, type, value, traceback):
+        if self.record:
+            self.logger.removeHandler(self.handler)
+            self.logger.setLevel(self.old_level)
+            with open(self.get_filepath(ext='txt'), 'a') as fp:
+                fp.write(self.handler.stream.getvalue())
+            self.handler.close()
+            del self.handler
 
 
 class Timer(object):
@@ -116,6 +219,7 @@ class WarningCatcher(object):
     def __enter__(self):
         self.catcher = warnings.catch_warnings(record=True)
         self.record = self.catcher.__enter__()
+        warnings.simplefilter('always', append=True)
 
     def __exit__(self, type, value, traceback):
         self.catcher.__exit__(type, value, traceback)
@@ -325,8 +429,8 @@ def load_functions(modules, pattern='^test_', arg_pattern='^Simulator$'):
     for module in modules:
         m = __import__('.'.join(module), globals(), locals(), ['*'])
         for k in dir(m):
-            if re.search(pattern, k):
-                test = getattr(m, k)
+            test = getattr(m, k)
+            if callable(test) and re.search(pattern, k):
                 args = inspect.getargspec(test).args
                 if any(re.search(arg_pattern, arg) for arg in args):
                     tests['.'.join(['test'] + module + [k])] = test
