@@ -92,7 +92,7 @@ class Vocabulary(object):
             count = 0
             p = pointer.SemanticPointer(self.dimensions, rng=self.rng)
             if self.vectors.shape[0] > 0:
-                while count < 100:
+                while count < attempts:
                     similarity = np.dot(self.vectors, p.v)
                     if max(similarity) < self.max_similarity:
                         break
