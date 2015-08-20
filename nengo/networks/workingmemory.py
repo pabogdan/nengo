@@ -4,7 +4,7 @@ import nengo
 from nengo.networks import EnsembleArray
 
 
-def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0, 
+def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0,
                      difference_gain=1.0, recurrent_synapse=0.1,
                      difference_synapse=None, net=None):
     """Stores a given vector in memory, with input controlled by a gate."""
@@ -38,14 +38,12 @@ def InputGatedMemory(n_neurons, dimensions, fdbk_scale=1.0,
         # otherwise retain stored value)
         net.gate = nengo.Node(size_in=1)
         nengo.Connection(net.gate, net.diff.neuron_input,
-                         transform=np.ones((n_total_neurons, 1)) * -gate_gain,
-                         synapse=None)
+                         transform=np.ones((n_total_neurons, 1)), synapse=None)
 
         # reset input (if reset=1, remove all values, and set to 0)
         net.reset = nengo.Node(size_in=1)
         nengo.Connection(net.reset, net.mem.neuron_input,
-                         transform=np.ones((n_total_neurons, 1)) * -reset_gain,
-                         synapse=None)
+                         transform=np.ones((n_total_neurons, 1)), synapse=None)
 
     net.input = net.diff.input
     net.output = net.mem.output
