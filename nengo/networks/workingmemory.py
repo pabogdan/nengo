@@ -32,18 +32,20 @@ def InputGatedMemory(n_neurons, dimensions, feedback=1.0,
         # feed difference into integrator
         nengo.Connection(net.diff.output, net.mem.input,
                          transform=difference_gain,
-                         synapse=nengo.Lowpass(difference_synapse))
+                         synapse=difference_synapse)
 
         # gate difference (if gate==0, update stored value,
         # otherwise retain stored value)
         net.gate = nengo.Node(size_in=1)
         nengo.Connection(net.gate, net.diff.neuron_input,
-                         transform=np.ones((n_total_neurons, 1)), synapse=None)
+                         transform=np.ones((n_total_neurons, 1)) * -10,
+                         synapse=None)
 
         # reset input (if reset=1, remove all values, and set to 0)
         net.reset = nengo.Node(size_in=1)
         nengo.Connection(net.reset, net.mem.neuron_input,
-                         transform=np.ones((n_total_neurons, 1)), synapse=None)
+                         transform=np.ones((n_total_neurons, 1)) * -3,
+                         synapse=None)
 
     net.input = net.diff.input
     net.output = net.mem.output
