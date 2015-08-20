@@ -16,20 +16,22 @@ class State(Module):
     dimensions : int
         Number of dimensions for the vector
     subdimensions : int
-        Size of the individual ensembles making up the vector.  Must divide
+        Size of the individual ensembles making up the vector. Must divide
         evenly into dimensions
     neurons_per_dimensions : int
         Number of neurons in an ensemble will be this*subdimensions
+    float : float
+        Gain of feedback connection. Set to 1.0 for perfect memory. Other
+        non-zero values will create a decaying memory
+    feedback_synapse : float, nengo.Synapse
+        The synapse on the feedback connection
     vocab : Vocabulary, optional
         The vocabulary to use to interpret this vector
-    direct : boolean
-        Whether or not to use direct mode for the neurons
     """
 
     def __init__(self, dimensions, subdimensions=16, neurons_per_dimension=50,
-                 feedback=1.0, feedback_synapse=0, tau=0.1,
-                 vocab=None, direct=False, label=None, seed=None,
-                 add_to_container=None):
+                 feedback=0.0, feedback_synapse=0.01, vocab=None, label=None,
+                 seed=None, add_to_container=None):
         super(State, self).__init__(label, seed, add_to_container)
 
         if vocab is None:
@@ -54,7 +56,6 @@ class State(Module):
                 neurons_per_dimension * subdimensions,
                 dimensions // subdimensions,
                 ens_dimensions=subdimensions,
-                neuron_type=nengo.Direct() if direct else nengo.LIF(),
                 radius=np.sqrt(float(subdimensions) / dimensions),
                 label='state')
 
@@ -62,16 +63,10 @@ class State(Module):
         self.outputs = dict(default=(self.output, vocab))
 
         with self:
-            if(feedback == 0.0):
-                nengo.Connection(self.input, self.state_ensembles.input,
-                                 synapse=None)
-            else:
-                nengo.Connection(self.input, self.state_ensembles.input,
-                                 transform=feedback,
-                                 synapse=nengo.Lowpass(tau))
+            nengo.Connection(self.input, self.state_ensembles.input,
+                             synapse=None)
+
+            if feedback != 0.0 and feedback is not None:
                 nengo.Connection(self.state_ensembles.output,
                                  self.state_ensembles.input,
                                  transform=feedback, synapse=feedback_synapse)
-            
-            nengo.Connection(self.state_ensembles.output, self.output,
-                             synapse=None)
