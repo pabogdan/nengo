@@ -115,7 +115,6 @@ class SPA(nengo.Network):
                                  "the SPA network and won't be detected"
                                  % (net))
 
-
     def get_module(self, name):
         """Return the module for the given name."""
         if name in self._modules:
