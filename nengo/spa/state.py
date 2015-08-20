@@ -20,7 +20,7 @@ class State(Module):
         evenly into dimensions
     neurons_per_dimensions : int
         Number of neurons in an ensemble will be this*subdimensions
-    float : float
+    feedback : float
         Gain of feedback connection. Set to 1.0 for perfect memory. Other
         non-zero values will create a decaying memory
     feedback_synapse : float, nengo.Synapse
@@ -50,23 +50,19 @@ class State(Module):
                              'subdimensions(%d)' % (dimensions, subdimensions))
 
         with self:
-            self.input = nengo.Node(size_in=dimensions)
-            self.output = nengo.Node(size_in=dimensions)
             self.state_ensembles = EnsembleArray(
                 neurons_per_dimension * subdimensions,
                 dimensions // subdimensions,
                 ens_dimensions=subdimensions,
                 radius=np.sqrt(float(subdimensions) / dimensions),
                 label='state')
+            self.input = self.state_ensembles.input
+            self.output = self.state_ensembles.output
 
-        self.inputs = dict(default=(self.input, vocab))
-        self.outputs = dict(default=(self.output, vocab))
+        self.inputs = dict(default=(self.state_ensembles.input, vocab))
+        self.outputs = dict(default=(self.state_ensembles.output, vocab))
 
         with self:
-            nengo.Connection(self.input, self.state_ensembles.input,
-                             synapse=None)
-
             if feedback != 0.0 and feedback is not None:
-                nengo.Connection(self.state_ensembles.output,
-                                 self.state_ensembles.input,
-                                 transform=feedback, synapse=feedback_synapse)
+                nengo.Connection(self.output, self.input, transform=feedback,
+                                 synapse=feedback_synapse)
