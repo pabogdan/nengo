@@ -74,7 +74,7 @@ def test_no_feedback_run(Simulator, seed):
 
 def test_memory_run(Simulator, seed, plt):
     with spa.SPA(seed=seed) as model:
-        model.memory = spa.State(dimensions=32, feedback=1.0)
+        model.memory = spa.State(dimensions=32, feedback=1.0, synapse=0.01)
 
         def state_input(t):
             if 0 <= t < 0.05:
@@ -106,7 +106,8 @@ def test_memory_run(Simulator, seed, plt):
 
 def test_memory_run_decay(Simulator, plt, seed):
     with spa.SPA(seed=seed) as model:
-        model.memory = spa.State(dimensions=32, feedback=(1.0 - 0.01/0.05))
+        model.memory = spa.State(dimensions=32, feedback=(1.0 - 0.01/0.05),
+                                 synapse=0.01)
 
         def state_input(t):
             if 0 <= t < 0.05:

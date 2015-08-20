@@ -30,7 +30,7 @@ class State(Module):
     """
 
     def __init__(self, dimensions, subdimensions=16, neurons_per_dimension=50,
-                 feedback=0.0, feedback_synapse=0.01, vocab=None, label=None,
+                 feedback=0.0, feedback_synapse=0.1, vocab=None, label=None,
                  seed=None, add_to_container=None):
         super(State, self).__init__(label, seed, add_to_container)
 
@@ -59,8 +59,8 @@ class State(Module):
             self.input = self.state_ensembles.input
             self.output = self.state_ensembles.output
 
-        self.inputs = dict(default=(self.state_ensembles.input, vocab))
-        self.outputs = dict(default=(self.state_ensembles.output, vocab))
+        self.inputs = dict(default=(self.input, vocab))
+        self.outputs = dict(default=(self.output, vocab))
 
         with self:
             if feedback != 0.0 and feedback is not None:
