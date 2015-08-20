@@ -59,13 +59,13 @@ def uniform_cube(domain_dim, radius=1, d=0.001):
 
     Returns:
     -------
-    ndarray of shape (domain_dim, radius/d)
+    ndarray of shape (domain_dim, (2 * radius/d) ^ domain_dim)
 
     """
 
     if domain_dim == 1:
         domain_points = np.arange(-radius, radius, d)
-        domain_points = array(domain_points, min_dims=2)
+        domain_points = array(domain_points, min_dims=2).T
     else:
         axis = np.arange(-radius, radius, d)
         # uniformly spaced points of a hypercube in the domain
@@ -82,7 +82,7 @@ def function_values(functions, points):
     ndarray of shape (n_points, n_functions).
     """
 
-    values = np.empty((len(points), len(functions)))
+    values = np.empty((points.shape[1], len(functions)))
     for i, function in enumerate(functions):
         values[:, i] = function(points).flatten()
     return values
@@ -131,7 +131,7 @@ class Function_Space(object):
 
 
 def gaussian(points, center):
-    return np.exp(-(points - center)**2 / (2 * 0.2 ** 2))
+    return np.exp(-(points.flatten() - center)**2 / (2 * 0.2 ** 2))
 
 
 class SVD_Function_Space(Function_Space):
@@ -162,9 +162,9 @@ class SVD_Function_Space(Function_Space):
         self.fns = function_values(generate_functions(fn, n_functions,
                                                       *dist_args),
                                    self.domain)
-        self.n_points = len(self.fns[0])
+        self.n_points = self.fns.shape[0]
 
-        self.dx = d ** self.domain.shape[1]  # volume element for integration
+        self.dx = d ** self.domain.shape[0]  # volume element for integration
         self.n_basis = n_basis
 
         # basis must be orthonormal
