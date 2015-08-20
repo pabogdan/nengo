@@ -22,7 +22,7 @@ def InputGatedMemory(n_neurons, dimensions, feedback=1.0,
                                 neuron_nodes=True, label="mem")
         nengo.Connection(net.mem.output, net.mem.input,
                          transform=feedback,
-                         synapse=nengo.Lowpass(recurrent_synapse))
+                         synapse=recurrent_synapse)
 
         # calculate difference between stored value and input
         net.diff = EnsembleArray(n_neurons, dimensions,
